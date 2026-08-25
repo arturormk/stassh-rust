@@ -1,0 +1,7 @@
+/target/
+
+# Local development vaults. Real vault contents should not be committed.
+/vault.json
+/vault.json.tmp
+/.stassh-local.json
+/.stassh-local.json.tmp
