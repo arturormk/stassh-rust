@@ -1,3 +1,5 @@
+![Made with Codex](https://img.shields.io/badge/made%20with-Codex-111111)
+
 # stassh-rust
 
 `stassh-rust` is an early Rust implementation of a portable, offline-first SSH workspace.
