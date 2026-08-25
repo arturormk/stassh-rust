@@ -6,6 +6,12 @@
 
 The current codebase provides a useful MVP: a `stassh` CLI, a `stassh-tui` terminal UI, and a reusable `stassh-core` crate. It stores host inventory in a local JSON vault and launches the system OpenSSH client.
 
+![stassh-tui browsing a demo SSH vault with folders, hosts, jumps, identity mappings, and forwards](examples/github-screenshot/stassh-tui-screenshot.jpg)
+
+`stassh-tui` gives the vault a fast terminal interface for browsing folders,
+searching hosts, inspecting jump chains and forwards, and launching OpenSSH
+connections without giving up plain-file portability.
+
 The longer-term project direction is documented in `docs/BLUEPRINT.md` and `docs/plan/`.
 
 The CLI and TUI exist today. `stassh-gui` is future development, as are reusable actions for both `stassh-tui` and `stassh-gui`.

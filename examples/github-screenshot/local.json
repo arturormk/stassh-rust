@@ -1,0 +1,35 @@
+{
+  "format_version": 0,
+  "identity_mappings": [
+    {
+      "fingerprint": "SHA256:stasshDemoPlatform",
+      "path": "/Users/demo/.ssh/stassh_platform_ed25519",
+      "preferred_name": "Platform operators"
+    },
+    {
+      "fingerprint": "SHA256:stasshDemoDeploy",
+      "path": "/Users/demo/.ssh/stassh_deploy_ed25519",
+      "preferred_name": "Deploy automation"
+    },
+    {
+      "fingerprint": "SHA256:stasshDemoDatabase",
+      "path": "/Users/demo/.ssh/stassh_database_ed25519",
+      "preferred_name": "Database break-glass"
+    },
+    {
+      "fingerprint": "SHA256:stasshDemoNetwork",
+      "path": "/Users/demo/.ssh/stassh_network_ed25519",
+      "preferred_name": "Network relay"
+    },
+    {
+      "fingerprint": "SHA256:stasshDemoLab",
+      "path": "/Users/demo/.ssh/stassh_lab_ed25519",
+      "preferred_name": "Lab key"
+    },
+    {
+      "fingerprint": "SHA256:stasshDemoPersonal",
+      "path": "/Users/demo/.ssh/stassh_personal_ed25519",
+      "preferred_name": "Personal VPS"
+    }
+  ]
+}
