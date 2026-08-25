@@ -8,8 +8,8 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use stassh_core::{
-    AddHost, Folder, Host, HostSelector, LocalConfig, UpdateHost, Vault, load_local_config,
-    load_vault, save_vault,
+    ActionDefinition, AddHost, Folder, Host, HostSelector, LocalConfig, UpdateHost, Vault,
+    load_local_config, load_vault, save_vault,
 };
 use uuid::Uuid;
 
@@ -22,6 +22,7 @@ use crate::editor::{
 pub(crate) enum KeyAction {
     None,
     Connect,
+    RunAction(Uuid),
     TmuxWindow,
 }
 
@@ -60,6 +61,7 @@ pub(crate) struct App {
     pub(crate) collapsed_folders: BTreeSet<Uuid>,
     pub(crate) pending_move_hosts: Vec<Uuid>,
     pub(crate) move_folder_selected: usize,
+    pub(crate) action_selected: usize,
     pub(crate) search: String,
     pub(crate) status_page: usize,
     pub(crate) show_diagnostics: bool,
@@ -98,6 +100,7 @@ impl App {
             collapsed_folders,
             pending_move_hosts: Vec::new(),
             move_folder_selected: 0,
+            action_selected: 0,
             search: String::new(),
             status_page: 0,
             show_diagnostics: false,
@@ -121,6 +124,7 @@ impl App {
             Mode::EditIdentity => self.handle_identity_editor_key(key),
             Mode::EditJumps => self.handle_jump_editor_key(key),
             Mode::EditForwards => self.handle_forward_editor_key(key),
+            Mode::ActionPalette => Ok(self.handle_action_palette_key(key)),
             Mode::ConfirmDelete => self.handle_delete_key(key),
             Mode::PickMoveFolder => self.handle_move_folder_key(key),
         }
@@ -161,6 +165,7 @@ impl App {
             KeyCode::Char('i') => self.start_edit_selected_identity(),
             KeyCode::Char('J') => self.start_edit_selected_jumps(),
             KeyCode::Char('F') => self.start_edit_selected_forwards(),
+            KeyCode::Char('a') => self.start_action_palette(),
             KeyCode::Char('C') => self.copy_selected_host()?,
             KeyCode::Char('n') => self.start_create_host(),
             KeyCode::Char('f') => self.start_create_folder(),
@@ -231,6 +236,7 @@ impl App {
             | Mode::EditIdentity
             | Mode::EditJumps
             | Mode::EditForwards
+            | Mode::ActionPalette
             | Mode::ConfirmDelete => None,
         }
     }
@@ -401,6 +407,28 @@ impl App {
         KeyAction::None
     }
 
+    fn handle_action_palette_key(&mut self, key: KeyEvent) -> KeyAction {
+        match key.code {
+            KeyCode::Esc => {
+                self.mode = Mode::Browse;
+                self.status.clear();
+            }
+            KeyCode::Enter => {
+                if let Some(action) = self.selected_action() {
+                    return KeyAction::RunAction(action.id);
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => self.move_action_selection(1),
+            KeyCode::Up | KeyCode::Char('k') => self.move_action_selection(-1),
+            KeyCode::Home => self.action_selected = 0,
+            KeyCode::End => {
+                self.action_selected = self.selected_actions().len().saturating_sub(1);
+            }
+            _ => {}
+        }
+        KeyAction::None
+    }
+
     fn handle_delete_key(&mut self, key: KeyEvent) -> Result<KeyAction> {
         match key.code {
             KeyCode::Char('y') | KeyCode::Enter => self.confirm_delete_selected_host()?,
@@ -445,6 +473,7 @@ impl App {
         self.prune_selected_hosts();
         self.pending_delete = None;
         self.pending_move_hosts.clear();
+        self.action_selected = 0;
         self.editor = None;
         self.folder_editor = None;
         self.identity_editor = None;
@@ -452,6 +481,21 @@ impl App {
         self.forward_editor = None;
         self.status = "vault reloaded".to_string();
         Ok(())
+    }
+
+    fn start_action_palette(&mut self) {
+        if self.selected_host().is_none() {
+            self.status = "select a host to choose actions".to_string();
+            return;
+        };
+        let action_count = self.selected_actions().len();
+        if action_count == 0 {
+            self.status = "selected host has no actions".to_string();
+            return;
+        }
+        self.action_selected = self.action_selected.min(action_count.saturating_sub(1));
+        self.mode = Mode::ActionPalette;
+        self.status.clear();
     }
 
     fn start_edit_selected_item(&mut self) {
@@ -546,6 +590,7 @@ impl App {
             self.status = "copy error: selected host not found".to_string();
             return Ok(());
         };
+        let source_actions = source.actions.clone();
 
         let copied = match vault.add_host(AddHost {
             folder_id: Some(source.folder_id),
@@ -566,6 +611,9 @@ impl App {
                 return Ok(());
             }
         };
+        if let Some(copied_host) = vault.hosts.iter_mut().find(|host| host.id == copied.id) {
+            copied_host.actions = source_actions;
+        }
         let copied_id = copied.id;
         let copied_path = vault.host_path(&copied);
         save_vault(&self.vault_path, &vault)?;
@@ -1079,6 +1127,7 @@ impl App {
             Mode::EditIdentity => self.identity_editor.as_ref().map(|editor| editor.host_id),
             Mode::EditJumps => self.jump_editor.as_ref().map(|editor| editor.host_id),
             Mode::EditForwards => self.forward_editor.as_ref().map(|editor| editor.host_id),
+            Mode::ActionPalette => self.tree.get(self.selected).and_then(|item| item.host_id()),
             Mode::EditFolder => None,
             Mode::PickMoveFolder => None,
             Mode::Search => self
@@ -1324,6 +1373,30 @@ impl App {
         self.selected = index;
         Some(())
     }
+
+    pub(crate) fn selected_action(&self) -> Option<&ActionDefinition> {
+        self.selected_actions().get(self.action_selected).copied()
+    }
+
+    pub(crate) fn selected_actions(&self) -> Vec<&ActionDefinition> {
+        if self.selected_host().is_none() {
+            return Vec::new();
+        }
+        self.vault
+            .actions
+            .iter()
+            .chain(
+                self.selected_host()
+                    .into_iter()
+                    .flat_map(|host| host.actions.iter()),
+            )
+            .collect()
+    }
+
+    fn move_action_selection(&mut self, delta: isize) {
+        self.action_selected =
+            move_index(self.action_selected, self.selected_actions().len(), delta);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1335,6 +1408,7 @@ pub(crate) enum Mode {
     EditIdentity,
     EditJumps,
     EditForwards,
+    ActionPalette,
     ConfirmDelete,
     PickMoveFolder,
 }
@@ -1538,7 +1612,8 @@ mod tests {
     };
     use ratatui::layout::Rect;
     use stassh_core::{
-        AddFolder, AddHost, ForwardDefinition, load_local_config, load_vault, save_local_config,
+        ActionDefinition, AddFolder, AddHost, ForwardDefinition, load_local_config, load_vault,
+        save_local_config,
     };
 
     use super::*;
@@ -1692,6 +1767,54 @@ mod tests {
         let action = app.handle_key(key(KeyCode::Enter)).unwrap();
 
         assert_eq!(action, KeyAction::Connect);
+    }
+
+    #[test]
+    fn action_key_opens_palette_for_common_actions() {
+        let mut app = sample_app();
+        app.vault.actions = vec![ActionDefinition {
+            id: Uuid::new_v4(),
+            name: "Desktop".to_string(),
+            local_prepare: None,
+            forwards: Vec::new(),
+            remote_command: Some("DISPLAY=:0 x11vnc -scale 1/2".to_string()),
+            local_launch: None,
+            cleanup: Vec::new(),
+        }];
+        select_label(&mut app, "web");
+
+        let action = app.handle_key(key(KeyCode::Char('a'))).unwrap();
+
+        assert_eq!(action, KeyAction::None);
+        assert_eq!(app.mode, Mode::ActionPalette);
+        assert_eq!(app.selected_action().unwrap().name, "Desktop");
+    }
+
+    #[test]
+    fn enter_in_action_palette_returns_run_action() {
+        let mut app = sample_app();
+        let host_id = app.vault.search_hosts("web")[0].id;
+        let action_id = Uuid::new_v4();
+        app.vault
+            .hosts
+            .iter_mut()
+            .find(|host| host.id == host_id)
+            .unwrap()
+            .actions = vec![ActionDefinition {
+            id: action_id,
+            name: "Desktop".to_string(),
+            local_prepare: None,
+            forwards: Vec::new(),
+            remote_command: Some("DISPLAY=:0 x11vnc -scale 1/2".to_string()),
+            local_launch: None,
+            cleanup: Vec::new(),
+        }];
+        select_label(&mut app, "web");
+        app.handle_key(key(KeyCode::Char('a'))).unwrap();
+
+        let action = app.handle_key(key(KeyCode::Enter)).unwrap();
+
+        assert_eq!(action, KeyAction::RunAction(action_id));
     }
 
     #[test]

@@ -284,6 +284,7 @@ mod tests {
             }],
             ssh_options: vec!["ServerAliveInterval=30".to_string()],
             forwards: Vec::new(),
+            actions: Vec::new(),
             tags: Vec::new(),
             notes: None,
         };
@@ -337,6 +338,7 @@ mod tests {
                     local_port: 1080,
                 },
             ],
+            actions: Vec::new(),
             tags: Vec::new(),
             notes: None,
         };
@@ -363,6 +365,7 @@ mod tests {
             jump_chain: Vec::new(),
             ssh_options: Vec::new(),
             forwards: Vec::new(),
+            actions: Vec::new(),
             tags: Vec::new(),
             notes: None,
         };

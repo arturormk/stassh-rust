@@ -61,10 +61,11 @@
 
 ## Milestone 8: Actions And Capabilities
 
-- Add composable actions with optional remote preparation, forwarding, local launch, wait, and cleanup.
-- Add machine-local capability mappings such as `vnc-viewer`, `browser`, and `terminal`.
-- Add automatic local port allocation for action forwards.
+- Initial composable actions exist with optional SSH session commands, forwarding, local launch, and cleanup.
+- Machine-local capability mappings exist for tools such as `vnc-viewer`, `browser`, and `terminal`.
+- Automatic local port allocation exists for action forwards.
 - Implement VNC and web-admin workflows as action examples, not special hard-coded subsystems.
+- Add action editing commands and TUI/GUI action editors.
 
 ## Milestone 9: Hardening And Interop
 

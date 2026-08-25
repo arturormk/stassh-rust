@@ -101,6 +101,11 @@ fn run_loop<B: Backend + io::Write>(terminal: &mut Terminal<B>, app: &mut App) -
                         app.status = format!("connect failed: {error}");
                     }
                 }
+                KeyAction::RunAction(action_id) => {
+                    if let Err(error) = connect::run_selected_action(terminal, app, action_id) {
+                        app.status = format!("action failed: {error}");
+                    }
+                }
                 KeyAction::TmuxWindow => {
                     if let Err(error) = connect::open_tmux_window(app) {
                         app.status = format!("tmux failed: {error}");

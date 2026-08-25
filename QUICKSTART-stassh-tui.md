@@ -172,15 +172,26 @@ Permissions should be:
 ~/.ssh/stassh/local.json  600
 ```
 
-`vault.json` is the portable SSH workspace. It stores folders, hosts, tags,
-notes, identity fingerprints, jump chains, forwards, and raw SSH options. It does
-not store private key material.
+`vault.json` is the portable SSH workspace. It stores folders, hosts, common
+actions, tags, notes, identity fingerprints, jump chains, forwards, and raw SSH
+options. It does not store private key material.
 
 A simplified `vault.json` looks like:
 
 ```json
 {
   "format_version": 0,
+  "actions": [
+    {
+      "id": "00000000-0000-0000-0000-000000000010",
+      "name": "VNC direct",
+      "remote_command": "DISPLAY=:0 x11vnc -scale 1/2",
+      "local_launch": {
+        "capability": "vnc-viewer-delay",
+        "args": ["{HOST}::5900"]
+      }
+    }
+  ],
   "folders": [
     {
       "id": "00000000-0000-0000-0000-000000000001",
@@ -208,18 +219,25 @@ A simplified `vault.json` looks like:
 ```
 
 `local.json` is machine-local. It maps portable identity fingerprints to private
-key paths on this computer. It may reveal local usernames and paths, so treat it
-as private too.
+key paths and portable capability names to executable paths on this computer. It
+may reveal local usernames and paths, so treat it as private too.
 
 A simplified `local.json` looks like:
 
 ```json
 {
+  "format_version": 0,
   "identity_mappings": [
     {
       "fingerprint": "SHA256:example",
       "preferred_name": "customer-key",
       "path": "/home/alice/.ssh/customer-key"
+    }
+  ],
+  "capability_mappings": [
+    {
+      "name": "vnc-viewer-delay",
+      "path": "/home/alice/bin/stassh-vnc-viewer-delay"
     }
   ]
 }
@@ -278,8 +296,9 @@ Host access settings:
 - `i`: choose or clear the selected host's local identity mapping
 - `J`: edit the selected host's jump chain
 - `F`: edit local, remote, or dynamic forwards
+- `a`: choose and run a common action for the selected host
 
-Raw SSH options are still edited with the CLI:
+Raw SSH options and actions are still edited outside the TUI:
 
 ```bash
 stassh host edit web --ssh-option ServerAliveInterval=30
@@ -305,7 +324,34 @@ or press `Ctrl+D`.
 For a stuck connection attempt, `Ctrl+C` usually interrupts OpenSSH. When SSH
 exits, `stassh-tui` restores its interface.
 
-## 7. tmux and byobu
+## 7. Actions
+
+Actions are reusable workflows. Common actions are stored once in `vault.json`
+and apply to every host. Machine-specific local programs are mapped in
+`local.json` as capabilities.
+
+For example, a forwarded VNC action can allocate a local port, forward it to
+remote port `5900`, run `x11vnc` through SSH, then launch a local viewer script:
+
+```bash
+stassh action web "VNC forwarded" --dry-run
+stassh action web "VNC forwarded"
+```
+
+The direct LAN/VPN version skips forwarding and connects the viewer to the
+resolved host address:
+
+```bash
+stassh action web "VNC direct" --dry-run
+stassh action web "VNC direct"
+```
+
+In `stassh-tui`, highlight a host, press `a`, choose the action, and press
+`Enter`. The TUI leaves the alternate screen while the action runs and restores
+itself when SSH exits. If a local viewer or wrapper script exits early, the CLI
+prints that status, which is useful when diagnosing forwarded VNC setup.
+
+## 8. tmux and byobu
 
 `stassh-tui` works well inside `tmux` or byobu.
 
@@ -326,19 +372,19 @@ stassh-tui
 Inside tmux/byobu:
 
 - `Enter`: open the selected host in the current terminal until SSH exits
-- `t`: open the selected host in a new tmux/byobu window
+- `t`: open the selected host in a new tmux/byobu window or byobu tab
 
 Using `t` is useful because:
 
 - you can keep `stassh-tui` open as your launcher and catalog
-- each SSH session gets its own tmux/byobu window
+- each SSH session gets its own tmux/byobu window or byobu tab
 - you can switch between many simultaneous sessions
 - OpenSSH still owns the actual terminal session, so interactive behavior stays normal
 
 If you press `t` outside tmux/byobu, `stassh-tui` shows a status message and does
 not change the current session.
 
-## 8. Common First-Day Workflow
+## 9. Common First-Day Workflow
 
 ```bash
 git clone https://github.com/arturormk/stassh-rust
@@ -354,4 +400,4 @@ stassh-tui
 ```
 
 Then use the TUI to browse, search, clean up folders, edit hosts, set identities,
-adjust jumps and forwards, and connect.
+adjust jumps and forwards, run actions, and connect.

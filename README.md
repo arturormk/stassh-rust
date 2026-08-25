@@ -2,19 +2,19 @@
 
 # stassh-rust
 
-`stassh-rust` is an early Rust implementation of a portable, offline-first SSH workspace.
+`stassh-rust` is an early Rust implementation of a portable, offline-first SSH workspace with reusable actions for workflows such as VNC over SSH.
 
-The current codebase provides a useful MVP: a `stassh` CLI, a `stassh-tui` terminal UI, and a reusable `stassh-core` crate. It stores host inventory in a local JSON vault and launches the system OpenSSH client.
+The current codebase provides a useful MVP: a `stassh` CLI, a `stassh-tui` terminal UI, and a reusable `stassh-core` crate. It stores host inventory and common actions in a local JSON vault, maps machine-local identities and tool capabilities in a local config file, and launches the system OpenSSH client.
 
-![stassh-tui browsing a demo SSH vault with folders, hosts, jumps, identity mappings, and forwards](examples/github-screenshot/stassh-tui-screenshot.jpg)
+![stassh-tui browsing a demo SSH vault with folders, hosts, jumps, identity mappings, forwards, and actions](examples/github-screenshot/stassh-tui-screenshot.jpg)
 
 `stassh-tui` gives the vault a fast terminal interface for browsing folders,
-searching hosts, inspecting jump chains and forwards, and launching OpenSSH
-connections without giving up plain-file portability.
+searching hosts, inspecting jump chains, forwards, and actions, and launching
+OpenSSH connections without giving up plain-file portability.
 
 The longer-term project direction is documented in `docs/BLUEPRINT.md` and `docs/plan/`.
 
-The CLI and TUI exist today. `stassh-gui` is future development, as are reusable actions for both `stassh-tui` and `stassh-gui`.
+The CLI and TUI exist today. `stassh-gui` is future development.
 
 ## Current Status
 
@@ -30,8 +30,10 @@ Implemented now:
 - folder list/add/rename/move/delete
 - jump host chains
 - local, remote, and dynamic forwards
+- reusable common actions, including SSH-forwarded local tool workflows
 - OpenSSH command and config generation
 - `stassh connect` using the system `ssh`
+- `stassh action` for running and diagnosing reusable actions
 - temporary OpenSSH config execution for jumps, forwards, and SSH options
 - import of a useful subset of existing OpenSSH config files, including nested `Include` files
 - export to OpenSSH config format
@@ -39,8 +41,8 @@ Implemented now:
 - fingerprint derivation from provided private key paths with `ssh-keygen -lf`
 - basic diagnostics
 - optional structured JSON output for CLI commands
-- `stassh-tui` for browsing, searching, inspecting, connecting, and basic vault editing
-- optional `stassh-tui` tmux/byobu window launch for multiple simultaneous SSH sessions
+- `stassh-tui` for browsing, searching, inspecting, connecting, running actions, and basic vault editing
+- optional `stassh-tui` tmux/byobu window launch with `t` for multiple simultaneous SSH sessions
 
 Not implemented yet:
 
@@ -48,7 +50,7 @@ Not implemented yet:
 - synchronization journals
 - automatic identity discovery by scanning `~/.ssh` or `ssh-agent`
 - `stassh-gui`
-- reusable actions/VNC workflows for `stassh-tui` and `stassh-gui`
+- action editing commands and TUI action editors
 
 ## Build And Test
 
@@ -109,8 +111,8 @@ stassh --output json export openssh -
 
 `stassh` uses two configuration files:
 
-- `vault.json`: portable host, folder, jump, forwarding, tag, note, and identity fingerprint records
-- local config: machine-local identity fingerprint to private-key path mappings
+- `vault.json`: portable host, folder, jump, forwarding, action, tag, note, and identity fingerprint records
+- local config: machine-local identity fingerprint to private-key path mappings and capability names to executable paths
 
 The local config does not contain private key material, but it can reveal local
 usernames and filesystem paths, so it should still be treated as private.
@@ -222,9 +224,10 @@ Current keys:
 - `i`: select or clear the selected host's identity fingerprint
 - `J`: edit the selected host's jump chain
 - `F`: edit the selected host's port forwards
+- `a`: open the selected host's action palette
 - `x` / `Delete`: delete the selected host or empty folder after confirmation
 - `Enter`: connect to the selected host, or expand/collapse the selected folder
-- `t`: open the selected host in a new tmux window when running inside tmux/byobu
+- `t`: open the selected host in a new tmux window, or byobu tab, when running inside tmux/byobu
 - `d`: toggle connection diagnostics in the detail panel
 - `F1`: cycle through wrapped status/help lines
 - `r`: reload the vault and local identity mappings from disk
@@ -324,6 +327,18 @@ Local and remote forwards use bind address, listening port, destination host, an
 destination port fields. Dynamic forwards use bind address and local port fields.
 New forwards start with placeholder ports that must be replaced before saving.
 
+In action palette mode:
+
+- `j` / `Down`: move to the next action
+- `k` / `Up`: move to the previous action
+- `Home`: move to the first action
+- `End`: move to the last action
+- `Enter`: run the highlighted action
+- `Esc`: cancel without running
+
+Common actions from the vault apply to every host. Host-specific actions, when
+present, appear after common actions.
+
 In folder create/edit mode:
 
 - `Tab` / `Down`: move to the next field
@@ -355,8 +370,10 @@ terminal capabilities, and interactive SSH behavior are handled by OpenSSH and t
 user's terminal.
 
 When `stassh-tui` is running inside tmux or byobu, `t` opens the selected host in a
-new tmux window using the same resolved OpenSSH configuration. This is the current
-multi-session workflow. The TUI does not embed terminal tabs or manage PTYs itself.
+new tmux window using the same resolved OpenSSH configuration. In byobu this is
+shown as a new tab, so `stassh-tui` can stay open as the launcher while sessions
+open beside it. This is the current multi-session workflow. The TUI does not
+embed terminal tabs or manage PTYs itself.
 If `t` is pressed outside tmux/byobu, the TUI shows a status message and leaves the
 current session unchanged.
 
@@ -491,6 +508,8 @@ Connect:
 
 ```bash
 stassh connect web
+stassh action web "VNC forwarded" --dry-run
+stassh action web "VNC forwarded"
 ```
 
 Identities:
@@ -569,6 +588,123 @@ ssh -F <temporary-config> <generated-alias>
 ```
 
 The temporary config is removed after the `ssh` process exits.
+
+## Actions
+
+Actions are reusable workflows stored in `vault.json`. A common action can apply
+to any host, while host-specific actions can still be attached to a single host
+for special cases. Actions can add temporary SSH forwards, run a command as the
+SSH session command, launch a local tool or script, and clean up local
+subprocesses when SSH exits.
+
+There is not yet a CLI or TUI editor for actions, so configure them by editing
+`vault.json` and `local.json`.
+
+Common actions live at the top level of `vault.json`, beside the existing
+`folders` and `hosts` arrays:
+
+```json
+{
+  "format_version": 0,
+  "actions": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "name": "VNC forwarded",
+      "forwards": [
+        {
+          "type": "local",
+          "name": "vnc",
+          "bind_address": "127.0.0.1",
+          "local_port": "auto",
+          "destination_host": "127.0.0.1",
+          "destination_port": 5900
+        }
+      ],
+      "remote_command": "DISPLAY=:0 x11vnc -scale 1/2",
+      "local_launch": {
+        "capability": "vnc-viewer-delay",
+        "args": ["127.0.0.1::{LOCAL_PORT:vnc}"]
+      }
+    },
+    {
+      "id": "22222222-2222-2222-2222-222222222222",
+      "name": "VNC direct",
+      "remote_command": "DISPLAY=:0 x11vnc -scale 1/2",
+      "local_launch": {
+        "capability": "vnc-viewer-delay",
+        "args": ["{HOST}::5900"]
+      }
+    }
+  ],
+  "folders": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "parent_id": null,
+      "name": "Root"
+    }
+  ],
+  "hosts": []
+}
+```
+
+Machine-local tools are configured in `local.json`:
+
+```json
+{
+  "format_version": 0,
+  "identity_mappings": [],
+  "capability_mappings": [
+    {
+      "name": "vnc-viewer-delay",
+      "path": "/home/alice/bin/stassh-vnc-viewer-delay"
+    }
+  ]
+}
+```
+
+Example wrapper script:
+
+```sh
+#!/bin/sh
+target="$1"
+case "$target" in
+127.0.0.1::*)
+  port="${target##*::}"
+  for _ in $(seq 1 60); do
+    nc -z 127.0.0.1 "$port" && exec xtightvncviewer "$target"
+    sleep 1
+  done
+  echo "VNC port did not open: $target" >&2
+  exit 1
+  ;;
+esac
+
+sleep 3
+exec xtightvncviewer "$target"
+```
+
+Run an action from the CLI:
+
+```bash
+stassh action web "VNC forwarded"
+stassh action web "VNC direct"
+```
+
+Use dry-run mode to inspect the resolved action without opening SSH or launching
+the local tool:
+
+```bash
+stassh action web "VNC forwarded" --dry-run
+stassh --output json action web "VNC forwarded" --dry-run
+```
+
+Dry-run output includes allocated automatic ports, the exact OpenSSH command, and
+the resolved local launch command. This is useful for diagnosing forwarded VNC
+failures.
+
+In `stassh-tui`, select a host, press `a`, choose an action, and press `Enter`.
+The TUI leaves the alternate screen while the action runs and restores itself
+when SSH exits.
 
 ## SSH Options
 

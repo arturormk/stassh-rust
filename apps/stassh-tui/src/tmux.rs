@@ -142,6 +142,7 @@ mod tests {
             jump_chain: Vec::new(),
             ssh_options: Vec::new(),
             forwards: Vec::new(),
+            actions: Vec::new(),
             tags: Vec::new(),
             notes: None,
         }

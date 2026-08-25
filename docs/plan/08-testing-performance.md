@@ -44,7 +44,7 @@ Cover user workflows:
 - TUI browse/search/connect/return
 - GUI search/connect/terminal tab behavior
 - diagnostics views with redaction
-- action execution once actions exist
+- action execution
 
 The GUI should be checked with screenshots or equivalent visual tests where layout regressions are likely.
 

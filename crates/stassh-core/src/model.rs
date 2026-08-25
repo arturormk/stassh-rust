@@ -28,6 +28,8 @@ pub enum StasshError {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Vault {
     pub format_version: u32,
+    #[serde(default)]
+    pub actions: Vec<ActionDefinition>,
     pub folders: Vec<Folder>,
     pub hosts: Vec<Host>,
 }
@@ -42,6 +44,7 @@ impl Vault {
     pub fn new() -> Self {
         Self {
             format_version: CURRENT_FORMAT_VERSION,
+            actions: Vec::new(),
             folders: vec![Folder {
                 id: Uuid::new_v4(),
                 parent_id: None,
@@ -206,6 +209,7 @@ impl Vault {
             jump_chain: add.jump_chain,
             ssh_options: add.ssh_options,
             forwards: add.forwards,
+            actions: Vec::new(),
             tags: add.tags,
             notes: add.notes,
         };
@@ -282,6 +286,9 @@ impl Vault {
         }
         if let Some(forwards) = update.forwards {
             host.forwards = forwards;
+        }
+        if let Some(actions) = update.actions {
+            host.actions = actions;
         }
         if let Some(tags) = update.tags {
             host.tags = tags;
@@ -397,6 +404,9 @@ impl Vault {
             })
             .collect();
 
+        let mut actions = self.actions.clone();
+        actions.extend(host.actions.clone());
+
         Ok(ResolvedHost {
             id: host.id,
             path: self.host_path(host),
@@ -408,6 +418,7 @@ impl Vault {
             jump_chain,
             ssh_options: host.ssh_options.clone(),
             forwards: host.forwards.clone(),
+            actions,
             tags: host.tags.clone(),
             notes: host.notes.clone(),
         })
@@ -605,6 +616,9 @@ pub struct Host {
     pub ssh_options: Vec<String>,
     #[serde(default)]
     pub forwards: Vec<ForwardDefinition>,
+    #[serde(default)]
+    pub actions: Vec<ActionDefinition>,
+    #[serde(default)]
     pub tags: Vec<String>,
     pub notes: Option<String>,
 }
@@ -641,6 +655,7 @@ pub struct UpdateHost {
     pub jump_chain: Option<Vec<Uuid>>,
     pub ssh_options: Option<Vec<String>>,
     pub forwards: Option<Vec<ForwardDefinition>>,
+    pub actions: Option<Vec<ActionDefinition>>,
     pub tags: Option<Vec<String>>,
     pub notes: Option<Option<String>>,
 }
@@ -666,6 +681,68 @@ pub enum ForwardDefinition {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ActionDefinition {
+    pub id: Uuid,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_prepare: Option<ActionLocalCommand>,
+    #[serde(default)]
+    pub forwards: Vec<ActionForwardDefinition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_launch: Option<ActionLocalCommand>,
+    #[serde(default)]
+    pub cleanup: Vec<ActionLocalCommand>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ActionLocalCommand {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ActionForwardDefinition {
+    Local {
+        name: String,
+        bind_address: String,
+        local_port: ActionPort,
+        destination_host: String,
+        destination_port: u16,
+    },
+    Dynamic {
+        name: String,
+        bind_address: String,
+        local_port: ActionPort,
+    },
+}
+
+impl ActionForwardDefinition {
+    pub fn name(&self) -> &str {
+        match self {
+            ActionForwardDefinition::Local { name, .. }
+            | ActionForwardDefinition::Dynamic { name, .. } => name,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionPort {
+    Auto,
+    Fixed(u16),
+    Env(String),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostSelector<'a> {
     Id(Uuid),
@@ -684,6 +761,7 @@ pub struct ResolvedHost {
     pub jump_chain: Vec<ResolvedJump>,
     pub ssh_options: Vec<String>,
     pub forwards: Vec<ForwardDefinition>,
+    pub actions: Vec<ActionDefinition>,
     pub tags: Vec<String>,
     pub notes: Option<String>,
 }
@@ -847,6 +925,7 @@ mod tests {
             jump_chain: Vec::new(),
             ssh_options: Vec::new(),
             forwards: Vec::new(),
+            actions: Vec::new(),
             tags: Vec::new(),
             notes: None,
         };
@@ -876,6 +955,73 @@ mod tests {
         let host: Host = serde_json::from_value(value).unwrap();
 
         assert_eq!(host.identity_fingerprint.as_deref(), Some("SHA256:abc"));
+    }
+
+    #[test]
+    fn vault_deserializes_without_actions_field() {
+        let root_id = Uuid::new_v4();
+        let value = serde_json::json!({
+            "format_version": CURRENT_FORMAT_VERSION,
+            "folders": [{
+                "id": root_id,
+                "parent_id": null,
+                "name": "Root"
+            }],
+            "hosts": []
+        });
+
+        let vault: Vault = serde_json::from_value(value).unwrap();
+
+        assert!(vault.actions.is_empty());
+    }
+
+    #[test]
+    fn resolved_host_includes_common_and_host_actions() {
+        let mut vault = Vault::new();
+        let common = ActionDefinition {
+            id: Uuid::new_v4(),
+            name: "Desktop".to_string(),
+            local_prepare: None,
+            forwards: Vec::new(),
+            remote_command: None,
+            local_launch: None,
+            cleanup: Vec::new(),
+        };
+        let local = ActionDefinition {
+            id: Uuid::new_v4(),
+            name: "Host console".to_string(),
+            local_prepare: None,
+            forwards: Vec::new(),
+            remote_command: None,
+            local_launch: None,
+            cleanup: Vec::new(),
+        };
+        vault.actions.push(common.clone());
+        let host = vault
+            .add_host(AddHost {
+                folder_id: None,
+                display_name: "web".to_string(),
+                hostname: "web.example".to_string(),
+                port: None,
+                username: None,
+                identity_fingerprint: None,
+                jump_chain: Vec::new(),
+                ssh_options: Vec::new(),
+                forwards: Vec::new(),
+                tags: Vec::new(),
+                notes: None,
+            })
+            .unwrap();
+        vault
+            .hosts
+            .iter_mut()
+            .find(|stored| stored.id == host.id)
+            .unwrap()
+            .actions = vec![local.clone()];
+
+        let resolved = vault.resolve_host(HostSelector::Id(host.id)).unwrap();
+
+        assert_eq!(resolved.actions, vec![common, local]);
     }
 
     #[test]

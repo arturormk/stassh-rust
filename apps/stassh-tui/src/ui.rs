@@ -54,6 +54,7 @@ fn draw_tree(frame: &mut Frame<'_>, app: &App, area: Rect) {
         | Mode::EditIdentity
         | Mode::EditJumps
         | Mode::EditForwards
+        | Mode::ActionPalette
         | Mode::ConfirmDelete => "Hosts",
         Mode::PickMoveFolder => "Move To Folder",
         Mode::Search => "Search",
@@ -66,6 +67,7 @@ fn draw_tree(frame: &mut Frame<'_>, app: &App, area: Rect) {
         | Mode::EditIdentity
         | Mode::EditJumps
         | Mode::EditForwards
+        | Mode::ActionPalette
         | Mode::ConfirmDelete => {
             let all_items = app
                 .tree
@@ -256,6 +258,11 @@ fn draw_details(frame: &mut Frame<'_>, app: &App, area: Rect) {
         return;
     }
 
+    if app.mode == Mode::ActionPalette {
+        draw_action_palette(frame, app, area);
+        return;
+    }
+
     let lines = if let Some(host) = app.selected_host() {
         host_detail_lines(app, host)
     } else if let Some(folder_id) = app.selected_folder_id() {
@@ -296,6 +303,112 @@ fn draw_move_folder_picker(frame: &mut Frame<'_>, app: &App, area: Rect) {
             .wrap(Wrap { trim: false }),
         area,
     );
+}
+
+fn draw_action_palette(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let Some(host) = app.selected_host() else {
+        frame.render_widget(
+            Paragraph::new("No host selected")
+                .block(Block::default().title("Actions").borders(Borders::ALL)),
+            area,
+        );
+        return;
+    };
+
+    let block = Block::default().title("Actions").borders(Borders::ALL);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let actions = app.selected_actions();
+    let detail_height = if actions.is_empty() || inner.height < 8 {
+        0
+    } else {
+        4
+    };
+    let areas = if detail_height == 0 {
+        vec![inner]
+    } else {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(detail_height)])
+            .split(inner)
+            .to_vec()
+    };
+
+    let mut lines = vec![
+        field("Host", &app.vault.host_path(host)),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Actions",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+    ];
+    if actions.is_empty() {
+        lines.push(Line::from("No actions"));
+    } else {
+        let visible_rows = areas[0].height.saturating_sub(3) as usize;
+        let offset = selected_scroll_offset(app.action_selected, visible_rows);
+        for (index, action) in actions
+            .iter()
+            .enumerate()
+            .skip(offset)
+            .take(visible_rows)
+        {
+            let marker = if index == app.action_selected {
+                "> "
+            } else {
+                "  "
+            };
+            let style = if index == app.action_selected {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            lines.push(Line::from(Span::styled(
+                format!("{marker}{}", action.name),
+                style,
+            )));
+        }
+    }
+
+    frame.render_widget(
+        Paragraph::new(lines).wrap(Wrap { trim: false }),
+        areas[0],
+    );
+
+    if detail_height > 0
+        && let Some(action) = actions.get(app.action_selected)
+    {
+        frame.render_widget(
+            Paragraph::new(action_detail_lines(action)).wrap(Wrap { trim: false }),
+            areas[1],
+        );
+    }
+}
+
+fn action_detail_lines(action: &stassh_core::ActionDefinition) -> Vec<Line<'static>> {
+    vec![
+        Line::from(Span::styled(
+            "Selected",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        field(
+            "Remote",
+            action.remote_command.as_deref().unwrap_or("(none)"),
+        ),
+        field("Forwards", &action.forwards.len().to_string()),
+        field(
+            "Local",
+            action
+                .local_launch
+                .as_ref()
+                .and_then(|command| command.capability.as_deref().or(command.program.as_deref()))
+                .unwrap_or("(none)"),
+        ),
+    ]
 }
 
 fn draw_delete_confirmation(
@@ -710,6 +823,15 @@ fn host_detail_lines(app: &App, host: &Host) -> Vec<Line<'static>> {
                 .collect::<Vec<_>>(),
         ),
     ));
+    lines.push(field(
+        "Actions",
+        &display_list(
+            &app.selected_actions()
+                .iter()
+                .map(|action| action.name.to_string())
+                .collect::<Vec<_>>(),
+        ),
+    ));
     lines.push(field("SSH options", &display_list(&resolved.ssh_options)));
 
     if app.show_diagnostics {
@@ -819,6 +941,7 @@ fn logical_status_lines(app: &App) -> Vec<String> {
         Mode::EditIdentity => "identity",
         Mode::EditJumps => "jumps",
         Mode::EditForwards => "forwards",
+        Mode::ActionPalette => "actions",
         Mode::ConfirmDelete => "delete",
         Mode::PickMoveFolder => "move",
     };
@@ -840,10 +963,11 @@ fn logical_status_lines(app: &App) -> Vec<String> {
         Mode::EditForwards => {
             "Ctrl+S save | Esc cancel | a local | A remote | d dynamic | x delete | Tab fields"
         }
+        Mode::ActionPalette => "Enter run action | Esc cancel | j/k choose action | Home/End",
         Mode::ConfirmDelete => "y/Enter delete | n/Esc cancel",
         Mode::PickMoveFolder => "Enter move | Esc cancel | j/k choose folder | Home/End",
         _ => {
-            "q quit | / search | Space select | u clear | m move | n new host | C copy host | f new folder | e edit | i identity | J jumps | F forwards | x delete | Enter connect | t tmux window | d diagnostics | r reload | Home/End/PgDn siblings | PgUp parent"
+            "q quit | / search | Space select | u clear | m move | n new host | C copy host | f new folder | e edit | i identity | J jumps | F forwards | a actions | x delete | Enter connect | t tmux window | d diagnostics | r reload | Home/End/PgDn siblings | PgUp parent"
         }
     };
     let mut lines = vec![

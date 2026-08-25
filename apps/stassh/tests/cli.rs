@@ -193,6 +193,68 @@ fn json_host_identity_uses_fingerprint_field() {
 }
 
 #[test]
+fn action_dry_run_reports_forwarded_vnc_plan() {
+    let dir = temp_dir("action-dry-run");
+    init_vault(&dir);
+    run(&[
+        "--vault",
+        &vault_path(&dir),
+        "host",
+        "add",
+        "pi",
+        "pi.local",
+    ]);
+    let vault_file = dir.join("vault.json");
+    let mut vault: Value = serde_json::from_slice(&fs::read(&vault_file).unwrap()).unwrap();
+    vault["actions"] = serde_json::json!([
+        {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "name": "VNC forwarded",
+            "forwards": [
+                {
+                    "type": "local",
+                    "name": "vnc",
+                    "bind_address": "127.0.0.1",
+                    "local_port": "auto",
+                    "destination_host": "127.0.0.1",
+                    "destination_port": 5900
+                }
+            ],
+            "remote_command": "DISPLAY=:0 x11vnc -scale 1/2",
+            "local_launch": {
+                "program": "/bin/echo",
+                "args": ["127.0.0.1::{LOCAL_PORT:vnc}"]
+            }
+        }
+    ]);
+    fs::write(&vault_file, serde_json::to_vec_pretty(&vault).unwrap()).unwrap();
+
+    let value = run_json(&[
+        "--vault",
+        &vault_path(&dir),
+        "--output",
+        "json",
+        "action",
+        "pi",
+        "VNC forwarded",
+        "--dry-run",
+    ]);
+
+    let port = value["plan"]["allocated_ports"]["vnc"].as_u64().unwrap();
+    assert!(port > 0);
+    assert!(
+        value["plan"]["ssh_command"]["display"]
+            .as_str()
+            .unwrap()
+            .contains("x11vnc")
+    );
+    assert_eq!(
+        value["plan"]["local_launch"]["args"][0],
+        format!("127.0.0.1::{port}")
+    );
+}
+
+#[test]
 fn vault_duplicates_reports_path_and_connection_groups() {
     let dir = temp_dir("duplicates");
     init_vault(&dir);

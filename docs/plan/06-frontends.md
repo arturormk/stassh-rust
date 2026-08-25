@@ -41,7 +41,8 @@ Initial features:
 
 Prefer suspending the alternate-screen UI and launching ordinary `ssh` attached directly to the terminal. This preserves the user's terminal emulator behavior and keeps the TUI lightweight.
 
-Optional tmux integration can come later. The application must not require tmux.
+Optional tmux/byobu integration exists in the TUI. The application must not
+require tmux.
 
 ## GUI
 

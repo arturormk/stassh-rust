@@ -80,7 +80,8 @@ Actions are composable workflows over ordinary tools. They may include remote pr
 
 Actions should use machine capabilities for local tools instead of synchronizing absolute executable paths. For example, a synchronized action can require `vnc-viewer`, while each machine maps that capability to its local viewer executable.
 
-Actions are a later feature. The data model should not block them, but MVP implementation can focus on direct SSH and forwarding.
+Actions now have an initial implementation in the core model and can be launched
+from the CLI and TUI. Editing actions is still expected to mature later.
 
 ## Local Overrides
 

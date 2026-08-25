@@ -12,6 +12,8 @@ pub const CURRENT_LOCAL_CONFIG_VERSION: u32 = 0;
 pub struct LocalConfig {
     pub format_version: u32,
     pub identity_mappings: Vec<IdentityMapping>,
+    #[serde(default)]
+    pub capability_mappings: Vec<CapabilityMapping>,
 }
 
 impl Default for LocalConfig {
@@ -25,6 +27,7 @@ impl LocalConfig {
         Self {
             format_version: CURRENT_LOCAL_CONFIG_VERSION,
             identity_mappings: Vec::new(),
+            capability_mappings: Vec::new(),
         }
     }
 
@@ -46,6 +49,20 @@ impl LocalConfig {
             if mapping.path.as_os_str().is_empty() {
                 return Err(LocalConfigError::InvalidValue {
                     field: "identity_mappings.path",
+                    reason: "must not be empty".to_string(),
+                });
+            }
+        }
+        for mapping in &self.capability_mappings {
+            if mapping.name.trim().is_empty() {
+                return Err(LocalConfigError::InvalidValue {
+                    field: "capability_mappings.name",
+                    reason: "must not be empty".to_string(),
+                });
+            }
+            if mapping.path.as_os_str().is_empty() {
+                return Err(LocalConfigError::InvalidValue {
+                    field: "capability_mappings.path",
                     reason: "must not be empty".to_string(),
                 });
             }
@@ -113,6 +130,41 @@ impl LocalConfig {
             .find(|mapping| mapping.fingerprint == fingerprint)
             .map(|mapping| mapping.path.as_path())
     }
+
+    pub fn map_capability(&mut self, name: String, path: PathBuf) -> Result<(), LocalConfigError> {
+        if name.trim().is_empty() {
+            return Err(LocalConfigError::InvalidValue {
+                field: "capability",
+                reason: "must not be empty".to_string(),
+            });
+        }
+        if path.as_os_str().is_empty() {
+            return Err(LocalConfigError::InvalidValue {
+                field: "path",
+                reason: "must not be empty".to_string(),
+            });
+        }
+
+        if let Some(mapping) = self
+            .capability_mappings
+            .iter_mut()
+            .find(|mapping| mapping.name == name)
+        {
+            mapping.path = path;
+        } else {
+            self.capability_mappings
+                .push(CapabilityMapping { name, path });
+        }
+
+        Ok(())
+    }
+
+    pub fn capability_path(&self, name: &str) -> Option<&Path> {
+        self.capability_mappings
+            .iter()
+            .find(|mapping| mapping.name == name)
+            .map(|mapping| mapping.path.as_path())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -121,6 +173,12 @@ pub struct IdentityMapping {
     pub path: PathBuf,
     #[serde(default)]
     pub preferred_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CapabilityMapping {
+    pub name: String,
+    pub path: PathBuf,
 }
 
 #[derive(Debug, thiserror::Error)]

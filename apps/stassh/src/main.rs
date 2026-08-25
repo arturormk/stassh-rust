@@ -1,19 +1,26 @@
+use std::collections::HashMap;
+use std::io;
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 use std::{env, fs};
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde_json::{Value, json};
-use stassh_core::model::ResolvedHost;
+use stassh_core::model::{ActionDefinition, ResolvedHost};
 use stassh_core::openssh::{
     command_for_config, command_for_host, config_for_host_with_identity_path,
 };
 use stassh_core::{
     AddFolder, AddHost, ForwardDefinition, IdentityImportContext, OpenSshIdentityResolver,
-    UpdateHost, Vault, derive_identity_from_file, ensure_home_stassh_permissions,
-    export_openssh_config, import_openssh_config_with_identities, load_local_config, load_vault,
-    local_config_path, prepare_openssh_command, read_openssh_config_with_includes,
+    ResolvedActionPlan, ResolvedLocalCommand, UpdateHost, Vault, derive_identity_from_file,
+    ensure_home_stassh_permissions, export_openssh_config, import_openssh_config_with_identities,
+    load_local_config, load_vault, local_config_path, parse_prepare_env, prepare_openssh_command,
+    read_openssh_config_with_includes, resolve_action_local_prepare, resolve_action_plan,
     save_local_config, save_vault, selector, vault_path,
 };
 use uuid::Uuid;
@@ -75,6 +82,7 @@ fn host_json(host: &stassh_core::Host, path: &str) -> Value {
         "jump_chain": host.jump_chain,
         "ssh_options": host.ssh_options,
         "forwards": host.forwards,
+        "actions": host.actions,
         "tags": host.tags,
         "notes": host.notes,
     })
@@ -100,6 +108,7 @@ fn resolved_host_json(
         "jump_chain": host.jump_chain.iter().map(resolved_jump_json).collect::<Vec<_>>(),
         "ssh_options": host.ssh_options,
         "forwards": host.forwards,
+        "actions": host.actions,
         "tags": host.tags,
         "notes": host.notes,
     })
@@ -229,6 +238,237 @@ fn print_host_dedupe_result(result: &stassh_core::HostDedupeResult) {
             host.hostname,
             host.port
         );
+    }
+}
+
+fn find_action<'a>(host: &'a ResolvedHost, selector: &str) -> Result<&'a ActionDefinition> {
+    if let Ok(id) = Uuid::parse_str(selector) {
+        return host
+            .actions
+            .iter()
+            .find(|action| action.id == id)
+            .with_context(|| format!("action not found: {selector}"));
+    }
+
+    let exact = host
+        .actions
+        .iter()
+        .filter(|action| action.name == selector)
+        .collect::<Vec<_>>();
+    match exact.as_slice() {
+        [action] => Ok(action),
+        [] => {
+            let matches = host
+                .actions
+                .iter()
+                .filter(|action| action.name.eq_ignore_ascii_case(selector))
+                .collect::<Vec<_>>();
+            match matches.as_slice() {
+                [action] => Ok(action),
+                [] => bail!("action not found: {selector}"),
+                many => bail!(
+                    "more than one action matched {selector}: {}",
+                    many.iter()
+                        .map(|action| action.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            }
+        }
+        many => bail!(
+            "more than one action matched {selector}: {}",
+            many.iter()
+                .map(|action| action.id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+
+fn action_plan_json(plan: &ResolvedActionPlan) -> Value {
+    json!({
+        "action_name": plan.action_name,
+        "allocated_ports": plan.allocated_ports,
+        "ssh_command": command_json(&plan.ssh_command),
+        "temp_config_path": plan.temp_config.as_ref().map(|config| config.path()),
+        "local_prepare": plan.local_prepare.as_ref().map(local_command_json),
+        "local_launch": plan.local_launch.as_ref().map(local_command_json),
+        "cleanup": plan.cleanup.iter().map(local_command_json).collect::<Vec<_>>(),
+    })
+}
+
+fn local_command_json(command: &ResolvedLocalCommand) -> Value {
+    json!({
+        "program": command.program,
+        "args": command.args,
+        "env": command.env,
+        "display": display_local_command(command),
+    })
+}
+
+fn print_action_plan(plan: &ResolvedActionPlan) {
+    println!("Action: {}", plan.action_name);
+    if plan.allocated_ports.is_empty() {
+        println!("Allocated ports: (none)");
+    } else {
+        println!("Allocated ports:");
+        let mut ports = plan.allocated_ports.iter().collect::<Vec<_>>();
+        ports.sort_by(|left, right| left.0.cmp(right.0));
+        for (name, port) in ports {
+            println!("  {name}: {port}");
+        }
+    }
+    if let Some(command) = &plan.local_prepare {
+        println!("Local prepare:");
+        println!("  {}", display_local_command(command));
+    }
+    println!("SSH command:");
+    println!("  {}", plan.ssh_command.render_for_display());
+    if let Some(config) = &plan.temp_config {
+        println!("Temporary SSH config: {}", config.path().display());
+    }
+    if let Some(command) = &plan.local_launch {
+        println!("Local launch:");
+        println!("  {}", display_local_command(command));
+    }
+    if !plan.cleanup.is_empty() {
+        println!("Cleanup:");
+        for command in &plan.cleanup {
+            println!("  {}", display_local_command(command));
+        }
+    }
+}
+
+struct ActionRunResult {
+    status: ExitStatus,
+    local_exit: Option<ExitStatus>,
+}
+
+fn run_action_prepare(command: Option<&ResolvedLocalCommand>) -> Result<HashMap<String, String>> {
+    let Some(command) = command else {
+        return Ok(HashMap::new());
+    };
+    eprintln!("running local prepare: {}", display_local_command(command));
+    let output = local_command(command)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .output()
+        .context("failed to run local prepare")?;
+    if !output.status.success() {
+        bail!("local prepare exited with status {}", output.status);
+    }
+    Ok(parse_prepare_env(&String::from_utf8_lossy(&output.stdout)))
+}
+
+fn run_action_plan(plan: ResolvedActionPlan) -> Result<ActionRunResult> {
+    let mut ssh_child = Command::new(&plan.ssh_command.program)
+        .args(&plan.ssh_command.args)
+        .spawn()
+        .context("failed to launch ssh")?;
+    let mut local_child = spawn_local_launch(plan.local_launch.as_ref())?;
+    let mut local_exit = None;
+
+    let status = loop {
+        if let Some(child) = &mut local_child
+            && local_exit.is_none()
+            && let Some(status) = child.try_wait().context("failed to poll local command")?
+        {
+            eprintln!("local command exited early with status {status}");
+            local_exit = Some(status);
+        }
+        if let Some(status) = ssh_child.try_wait().context("failed to poll ssh")? {
+            break status;
+        }
+        thread::sleep(Duration::from_millis(100));
+    };
+
+    if let Some(child) = &mut local_child
+        && local_exit.is_none()
+    {
+        terminate_child_tree(child);
+        local_exit = child.try_wait().ok().flatten();
+    }
+    for command in &plan.cleanup {
+        let cleanup_status = local_command(command).status().with_context(|| {
+            format!("failed to run cleanup: {}", display_local_command(command))
+        })?;
+        if !cleanup_status.success() {
+            eprintln!("cleanup exited with status {cleanup_status}");
+        }
+    }
+
+    Ok(ActionRunResult { status, local_exit })
+}
+
+fn spawn_local_launch(command: Option<&ResolvedLocalCommand>) -> Result<Option<Child>> {
+    let Some(command) = command else {
+        return Ok(None);
+    };
+    eprintln!(
+        "launching local command: {}",
+        display_local_command(command)
+    );
+    let mut process = local_command(command);
+    #[cfg(unix)]
+    prepare_local_child_group(&mut process);
+    process
+        .spawn()
+        .map(Some)
+        .context("failed to launch local command")
+}
+
+fn local_command(command: &ResolvedLocalCommand) -> Command {
+    let mut process = Command::new(&command.program);
+    process.args(&command.args).envs(&command.env);
+    process
+}
+
+fn display_local_command(command: &ResolvedLocalCommand) -> String {
+    let mut parts = vec![command.program.display().to_string()];
+    parts.extend(command.args.clone());
+    parts.join(" ")
+}
+
+#[cfg(unix)]
+fn prepare_local_child_group(command: &mut Command) {
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setpgid(0, 0) != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+}
+
+#[cfg(unix)]
+fn terminate_child_tree(child: &mut Child) {
+    let pgrp = child.id() as libc::pid_t;
+    unsafe {
+        libc::kill(-pgrp, libc::SIGTERM);
+    }
+    wait_or_kill(child, Duration::from_secs(2));
+}
+
+#[cfg(not(unix))]
+fn terminate_child_tree(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn wait_or_kill(child: &mut Child, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(50)),
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return;
+            }
+            Err(_) => return,
+        }
     }
 }
 
@@ -406,6 +646,7 @@ enum Commands {
     Show(HostSelectorArgs),
     Diagnose(HostSelectorArgs),
     Connect(HostSelectorArgs),
+    Action(ActionArgs),
     #[command(subcommand)]
     Identity(IdentityCommands),
     #[command(subcommand)]
@@ -682,6 +923,15 @@ struct HostSelectorArgs {
     selector: String,
 }
 
+#[derive(Debug, Args)]
+struct ActionArgs {
+    host: String,
+    action: String,
+
+    #[arg(long)]
+    dry_run: bool,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let vault_path = vault_path(cli.vault)?;
@@ -716,6 +966,8 @@ fn main() -> Result<()> {
                     "vault_path": vault_path,
                     "local_config_path": local_config_path,
                     "format_version": vault.format_version,
+                    "actions": vault.actions,
+                    "actions_count": vault.actions.len(),
                     "folders": vault.folders.len(),
                     "hosts": vault.hosts.len(),
                 }))?;
@@ -723,6 +975,7 @@ fn main() -> Result<()> {
                 println!("vault: {}", vault_path.display());
                 println!("local config: {}", local_config_path.display());
                 println!("format_version: {}", vault.format_version);
+                println!("actions: {}", vault.actions.len());
                 println!("folders: {}", vault.folders.len());
                 println!("hosts: {}", vault.hosts.len());
             }
@@ -982,6 +1235,7 @@ fn main() -> Result<()> {
                         jump_chain,
                         ssh_options,
                         forwards,
+                        actions: None,
                         tags,
                         notes,
                     },
@@ -1110,6 +1364,51 @@ fn main() -> Result<()> {
                     "host": resolved_host_json(&resolved, Some(&local_config)),
                     "openssh_command": command_json(&command),
                     "exit_code": status.code(),
+                }))?;
+            }
+        }
+        Commands::Action(args) => {
+            let vault = load_vault(&vault_path)?;
+            let local_config = load_local_config(&local_config_path)?;
+            let resolved = vault.resolve_host(selector(&args.host))?;
+            let action = find_action(&resolved, &args.action)?.clone();
+            let local_prepare = resolve_action_local_prepare(&resolved, &action, &local_config)
+                .context("failed to prepare action")?;
+
+            if args.dry_run {
+                let plan = resolve_action_plan(&resolved, &action, &local_config, &HashMap::new())
+                    .context("failed to resolve action")?;
+                if output.is_json() {
+                    print_json(json!({
+                        "mode": "dry_run",
+                        "host": resolved_host_json(&resolved, Some(&local_config)),
+                        "action": action,
+                        "plan": action_plan_json(&plan),
+                    }))?;
+                } else {
+                    print_action_plan(&plan);
+                }
+                return Ok(());
+            }
+
+            let prepare_env = run_action_prepare(local_prepare.as_ref())?;
+            let plan = resolve_action_plan(&resolved, &action, &local_config, &prepare_env)
+                .context("failed to resolve action")?;
+            if !output.is_json() {
+                print_action_plan(&plan);
+                eprintln!("running action: {}", plan.action_name);
+            }
+            let result = run_action_plan(plan)?;
+            if !result.status.success() {
+                bail!("action ssh exited with status {}", result.status);
+            }
+            if output.is_json() {
+                print_json(json!({
+                    "status": "completed",
+                    "host": resolved_host_json(&resolved, Some(&local_config)),
+                    "action": action,
+                    "ssh_exit_code": result.status.code(),
+                    "local_exit_code": result.local_exit.and_then(|status| status.code()),
                 }))?;
             }
         }
@@ -1402,6 +1701,18 @@ fn print_resolved(host: &ResolvedHost, local_config: Option<&stassh_core::LocalC
             host.forwards
                 .iter()
                 .map(display_forward)
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
+    );
+    println!(
+        "Actions: {}",
+        if host.actions.is_empty() {
+            "(none)".to_string()
+        } else {
+            host.actions
+                .iter()
+                .map(|action| action.name.as_str())
                 .collect::<Vec<_>>()
                 .join(", ")
         }

@@ -924,6 +924,7 @@ mod tests {
             jump_chain: Vec::new(),
             ssh_options: Vec::new(),
             forwards: Vec::new(),
+            actions: Vec::new(),
             tags: vec!["prod".to_string(), "web".to_string()],
             notes: Some("note".to_string()),
         }
