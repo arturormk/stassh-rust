@@ -59,13 +59,13 @@
 - Add host tree, search, host/folder editing, integrated terminal tabs, and diagnostics.
 - Add terminal layout tabs with equal-grid and main-pane modes.
 - Add layout composition by drag/drop, layout-local broadcast input, internal full-screen terminal panes, and host-tree open-session indicators.
+- Add contextual Inspector details for selections, terminals, and layouts.
+- Add focused terminal find and running-session close confirmation.
 - Keep terminal byte streaming out of heavyweight frontend state.
 
 Remaining GUI polish:
 
-- Redesign the Details tab and right-side Inspector.
 - Add stronger action-running and action-editing surfaces.
-- Add close-session confirmation for running sessions.
 - Add visual/manual regression coverage for terminal layouts.
 
 ## Milestone 8: Actions And Capabilities

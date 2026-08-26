@@ -54,12 +54,16 @@ Current MVP features:
 - search
 - host editor
 - folder editor
+- contextual inspector for selected hosts, selected folders, active terminals,
+  and layouts
 - diagnostics and generated OpenSSH preview
 - terminal tabs
+- focused terminal find
 - independent terminal layout tabs
 - equal-grid and main-pane terminal layouts
 - layout-local broadcast input
 - internal full-screen terminal panes
+- running-session close confirmation
 - open-session indicators in the host tree
 - integrated PTY terminal through xterm.js
 - connect via OpenSSH
@@ -72,9 +76,7 @@ keyboard handling, state management, and performance rather than fashion.
 
 Near-term GUI polish:
 
-- redesign the Details tab and right-side Inspector
 - add richer action-running and action-editing surfaces
-- add stronger close-session confirmation behavior
 - add screenshot or equivalent visual regression checks for terminal layouts
 
 ## GUI Terminal Path

@@ -1573,13 +1573,14 @@ The current MVP layout follows this shape:
 The actual design may differ substantially.
 
 Current GUI capabilities include host/folder browsing, search, basic vault
-editing, diagnostics, OpenSSH command previews, embedded terminal tabs, terminal
-layout tabs, equal-grid and main-pane terminal views, layout-local broadcast
-input, drag/drop layout composition, internal full-screen terminal panes, and
-host-tree indicators for open sessions.
+editing, contextual inspection, diagnostics, OpenSSH command previews, embedded
+terminal tabs, terminal find, terminal layout tabs, equal-grid and main-pane
+terminal views, layout-local broadcast input, drag/drop layout composition,
+internal full-screen terminal panes, close confirmation for running sessions,
+and host-tree indicators for open sessions.
 
-The next GUI polish area is the Details tab and right-side Inspector. Action
-running/editing and richer diagnostics surfaces also remain future work.
+The next GUI polish areas are action running/editing and richer diagnostics
+surfaces.
 
 ---
 

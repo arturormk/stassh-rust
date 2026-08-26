@@ -13,21 +13,22 @@ CLI/TUI semantics.
 
 As of the current MVP, `apps/stassh-gui` exists as a Tauri desktop app with a
 React/xterm.js frontend and Rust PTY/session backend. It can browse and edit the
-vault, search hosts, show diagnostics and OpenSSH previews, and open embedded
-OpenSSH terminal sessions. Its terminal workspace already supports independent
-terminal tabs, independent `Layout {n}` tabs over existing sessions, equal-grid
-and main-pane layouts, drag/drop layout composition, layout-local broadcast
-input, host-tree open-session indicators, and internal full-screen terminal
-panes.
+vault, search hosts, show diagnostics and OpenSSH previews in a contextual
+Inspector, and open embedded OpenSSH terminal sessions. Its terminal workspace
+already supports independent terminal tabs, independent `Layout {n}` tabs over
+existing sessions, equal-grid and main-pane layouts, drag/drop layout
+composition, layout-local broadcast input, host-tree open-session indicators,
+per-terminal find, host notes in terminal headers, and internal full-screen
+terminal panes.
 
 The project may and should diverge from this blueprint when implementation
 experience, platform constraints, performance testing, security review, or
 usability findings suggest a better approach.
 
 The remaining near-term GUI work is mostly polish and peripheral workflow depth:
-the Details tab and right-side Inspector need redesign, action running/editing
-surfaces remain incomplete, and terminal-layout behavior needs broader manual
-and visual regression coverage.
+action running/editing surfaces remain incomplete, richer diagnostics surfaces
+need more work, and terminal-layout behavior needs broader manual and visual
+regression coverage.
 
 ---
 
@@ -424,8 +425,11 @@ Current session affordances:
 * reorder terminal and layout tabs while keeping terminal scrollback mounted,
 * use layout-local broadcast input,
 * full-screen the focused terminal pane inside the app window,
+* search focused terminal scrollback with optional case sensitivity,
+* show host notes in terminal headers when notes are available,
 * show connected/running/exited state,
 * remove a session from a layout without closing the SSH session,
+* confirm before closing a still-running terminal session,
 * close a terminal session,
 * and preserve the host browser while sessions are active.
 
@@ -433,7 +437,6 @@ Expected later session affordances:
 
 * open action in a new action/session tab,
 * duplicate or reconnect a session when feasible,
-* close session with confirmation if the process is still running,
 * show connected/running/exited/failed state,
 * rename session title locally,
 * persist layout definitions outside the portable vault when appropriate.
@@ -480,8 +483,9 @@ The GUI should be visually polished without sacrificing density.
 Current MVP layout:
 
 * left inventory sidebar with folders, hosts, search, and selection state,
-* main workspace with tabs for details, terminals, and terminal layouts,
-* right inspector/editor panel for the selected host or folder,
+* main workspace with terminal and terminal-layout tabs when sessions exist,
+* right inspector/editor panel for the selected host, selected folder, active
+  terminal host, or active layout,
 * status area for vault path, diagnostics count, selected-host count, and
   session feedback.
 
@@ -490,7 +494,7 @@ Recommended future additions:
 * action runs and diagnostics as richer first-class surfaces,
 * optional VNC action surfaces,
 * compact command palette for high-frequency actions,
-* redesigned Details and Inspector surfaces that are easier to scan and edit.
+* richer diagnostics and action surfaces that are easier to scan and edit.
 
 Design goals:
 
@@ -638,6 +642,8 @@ Already-implemented terminal scenarios should also remain covered:
 * create layouts by dragging one terminal tab onto another,
 * switch between equal-grid and main-pane layout modes,
 * broadcast input to all panes in a layout,
+* search focused terminal scrollback,
+* confirm before closing a still-running terminal session,
 * full-screen and exit the focused terminal pane,
 * and preserve terminal contents across tab reordering and layout changes.
 

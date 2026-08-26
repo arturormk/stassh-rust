@@ -4,14 +4,20 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
 import {
+  CaseSensitive,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Copy,
   Folder,
   Maximize2,
   Minimize2,
   Monitor,
+  PanelRightClose,
+  PanelRightOpen,
+  Pencil,
   Plus,
   RefreshCw,
   Save,
@@ -117,7 +123,6 @@ type HostDetails = {
 };
 
 type Tab =
-  | { type: "details"; id: "details"; title: string }
   | { type: "terminal"; id: Id; sessionId: Id; hostId: Id; title: string; status: string }
   | {
       type: "layout";
@@ -133,6 +138,13 @@ type Tab =
 type Selection = { type: "host"; id: Id } | { type: "folder"; id: Id };
 type EditorMode = "host" | "folder" | "new-host" | "new-folder" | null;
 type LayoutMode = "grid" | "main";
+type InspectorSource = "details" | "terminal" | "layout";
+
+type InspectorTarget =
+  | { type: "host"; source: InspectorSource; host: HostView; details: HostDetails | null; terminal: Extract<Tab, { type: "terminal" }> | null }
+  | { type: "folder"; source: "details"; folder: FolderView }
+  | { type: "layout"; source: "layout"; layout: Extract<Tab, { type: "layout" }> }
+  | null;
 
 type HostForm = {
   folderId: Id;
@@ -153,7 +165,6 @@ type FolderForm = {
   name: string;
 };
 
-const detailsTab: Tab = { type: "details", id: "details", title: "Details" };
 const defaultSidebarWidth = 320;
 const minSidebarWidth = 240;
 const maxSidebarWidth = 560;
@@ -174,20 +185,23 @@ function App() {
   const [checkedHosts, setCheckedHosts] = useState<Set<Id>>(new Set());
   const [draggingHostIds, setDraggingHostIds] = useState<Id[]>([]);
   const [dropTargetFolderId, setDropTargetFolderId] = useState<Id | null>(null);
-  const [tabs, setTabs] = useState<Tab[]>([detailsTab]);
+  const [tabs, setTabs] = useState<Tab[]>([]);
   const [terminalOrder, setTerminalOrder] = useState<Id[]>([]);
-  const [activeTabId, setActiveTabId] = useState("details");
+  const [activeTabId, setActiveTabId] = useState<Id | null>(null);
   const [draggingTabId, setDraggingTabId] = useState<Id | null>(null);
   const [tabDropTargetId, setTabDropTargetId] = useState<Id | null>(null);
   const [tabAddTargetId, setTabAddTargetId] = useState<Id | null>(null);
   const [fullscreenSessionId, setFullscreenSessionId] = useState<Id | null>(null);
   const [editorMode, setEditorMode] = useState<EditorMode>(null);
+  const [editingHostId, setEditingHostId] = useState<Id | null>(null);
   const [hostForm, setHostForm] = useState<HostForm | null>(null);
   const [folderForm, setFolderForm] = useState<FolderForm | null>(null);
   const [status, setStatus] = useState("Loading workspace");
   const [error, setError] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(defaultSidebarWidth);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const sidebarResize = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
+  const activeTab = activeTabId ? tabs.find((tab) => tab.id === activeTabId) ?? null : null;
 
   useEffect(() => {
     loadWorkspace();
@@ -202,14 +216,41 @@ function App() {
   }, [workspace?.vaultPath]);
 
   useEffect(() => {
-    if (!workspace || selection?.type !== "host") {
+    if (tabs.length && (!activeTabId || !tabs.some((tab) => tab.id === activeTabId))) {
+      setActiveTabId(tabs[0].id);
+    }
+  }, [activeTabId, tabs]);
+
+  const inspectorHostId = useMemo(() => {
+    if (!activeTab) return selection?.type === "host" ? selection.id : null;
+    if (activeTab.type === "terminal") return activeTab.hostId;
+    if (activeTab.type === "layout") {
+      const activeSessionId = activeTab.activeSessionId ?? activeTab.sessionIds[0];
+      return (
+        tabs.find(
+          (tab): tab is Extract<Tab, { type: "terminal" }> => tab.type === "terminal" && tab.sessionId === activeSessionId,
+        )?.hostId ?? null
+      );
+    }
+    return null;
+  }, [activeTab, selection, tabs]);
+
+  useEffect(() => {
+    if (!workspace || !inspectorHostId) {
       setDetails(null);
       return;
     }
-    invoke<HostDetails>("host_details", { hostId: selection.id })
+    invoke<HostDetails>("host_details", { hostId: inspectorHostId })
       .then(setDetails)
       .catch((err) => setStatus(String(err)));
-  }, [workspace, selection]);
+  }, [workspace, inspectorHostId]);
+
+  useEffect(() => {
+    if (editorMode) {
+      setInspectorCollapsed(false);
+      window.requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+    }
+  }, [editorMode]);
 
   useEffect(() => {
     if (!workspace) return;
@@ -287,11 +328,6 @@ function App() {
       const snapshot = await invoke<WorkspaceSnapshot>("load_workspace");
       setWorkspace(snapshot);
       setStatus("Workspace loaded");
-      if (!selection) {
-        const first = snapshot.hosts[0];
-        const root = snapshot.folders.find((folder) => folder.parentId === null);
-        setSelection(first ? { type: "host", id: first.id } : root ? { type: "folder", id: root.id } : null);
-      }
     } catch (err) {
       setError(String(err));
       setStatus("Workspace failed to load");
@@ -333,9 +369,10 @@ function App() {
       const snapshot =
         editorMode === "new-host"
           ? await invoke<WorkspaceSnapshot>("create_host", { input: payload })
-          : await invoke<WorkspaceSnapshot>("update_host", { hostId: selection?.id, input: payload });
+          : await invoke<WorkspaceSnapshot>("update_host", { hostId: editingHostId, input: payload });
       setWorkspace(snapshot);
       setEditorMode(null);
+      setEditingHostId(null);
       setStatus("Host saved");
     } catch (err) {
       setStatus(String(err));
@@ -343,17 +380,20 @@ function App() {
   }
 
   async function saveFolder() {
-    if (!folderForm || !selection) return;
+    if (!folderForm) return;
+    const folderId = selection?.id;
+    if (editorMode !== "new-folder" && !folderId) return;
     try {
       const snapshot =
         editorMode === "new-folder"
           ? await invoke<WorkspaceSnapshot>("create_folder", { input: folderForm })
           : await invoke<WorkspaceSnapshot>("rename_folder", {
-              folderId: selection.id,
+              folderId,
               name: folderForm.name.trim(),
             });
       setWorkspace(snapshot);
       setEditorMode(null);
+      setEditingHostId(null);
       setStatus("Folder saved");
     } catch (err) {
       setStatus(String(err));
@@ -362,7 +402,6 @@ function App() {
 
   async function openTerminal(host: HostView) {
     try {
-      setActiveTabId("details");
       const sessionId = await invoke<Id>("start_ssh_session", {
         hostId: host.id,
         cols: 100,
@@ -399,29 +438,44 @@ function App() {
 
   async function closeTab(tab: Tab) {
     if (tab.type === "terminal") {
-      await invoke("close_session", { sessionId: tab.sessionId }).catch(() => undefined);
+      if (tab.status === "running" && !window.confirm(`Close connected terminal ${tab.title}?`)) {
+        return;
+      }
       setTerminalOrder((current) => current.filter((sessionId) => sessionId !== tab.sessionId));
       setFullscreenSessionId((current) => (current === tab.sessionId ? null : current));
-      setTabs((current) =>
-        current
-          .filter((item) => item.id !== tab.id)
-          .map((item) =>
-            item.type === "layout"
-              ? {
-                  ...item,
-                  sessionIds: item.sessionIds.filter((sessionId) => sessionId !== tab.sessionId),
-                  activeSessionId:
-                    item.activeSessionId === tab.sessionId
-                      ? item.sessionIds.find((sessionId) => sessionId !== tab.sessionId) ?? null
-                      : item.activeSessionId,
-                }
-              : item,
-          ),
-      );
+      const nextTabs = tabs
+        .filter((item) => item.id !== tab.id)
+        .map((item) =>
+          item.type === "layout"
+            ? {
+                ...item,
+                sessionIds: item.sessionIds.filter((sessionId) => sessionId !== tab.sessionId),
+                activeSessionId:
+                  item.activeSessionId === tab.sessionId
+                    ? item.sessionIds.find((sessionId) => sessionId !== tab.sessionId) ?? null
+                    : item.activeSessionId,
+              }
+            : item,
+        );
+      const nextActiveTabId =
+        activeTabId === tab.id || !nextTabs.some((item) => item.id === activeTabId)
+          ? nextTabs[0]?.id ?? null
+          : activeTabId;
+      setTabs(nextTabs);
+      setActiveTabId(nextActiveTabId);
+      if (!nextActiveTabId) {
+        setSelection((current) => (current?.type === "host" && current.id === tab.hostId ? null : current));
+      }
+      setDetails((current) => (current?.host.id === tab.hostId ? null : current));
+      invoke("close_session", { sessionId: tab.sessionId }).catch(() => undefined);
     } else {
-      setTabs((current) => current.filter((item) => item.id !== tab.id));
+      const next = tabs.filter((item) => item.id !== tab.id);
+      setTabs(next);
+      if (activeTabId === tab.id || !next.some((item) => item.id === activeTabId)) {
+        setActiveTabId(next[0]?.id ?? null);
+      }
     }
-    setActiveTabId("details");
+    window.requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
   }
 
   function createLayoutTab() {
@@ -436,7 +490,7 @@ function App() {
         title: `Layout ${current.filter((tab) => tab.type === "layout").length + 1}`,
         sessionIds: terminalTabs.map((tab) => tab.sessionId),
         activeSessionId:
-          activeTab.type === "terminal" ? activeTab.sessionId : terminalTabs[terminalTabs.length - 1]?.sessionId ?? null,
+          activeTab?.type === "terminal" ? activeTab.sessionId : terminalTabs[terminalTabs.length - 1]?.sessionId ?? null,
         mode: "grid",
         mainRatio: 0.5,
         broadcastInput: false,
@@ -530,14 +584,14 @@ function App() {
   }
 
   function reorderTab(sourceId: Id, targetId: Id) {
-    if (sourceId === targetId || sourceId === "details") return;
+    if (sourceId === targetId) return;
     setTabs((current) => {
       const source = current.find((tab) => tab.id === sourceId);
       if (!source) return current;
       const withoutSource = current.filter((tab) => tab.id !== sourceId);
       const targetIndex = withoutSource.findIndex((tab) => tab.id === targetId);
       if (targetIndex < 0) return current;
-      const insertIndex = targetId === "details" ? 1 : targetIndex;
+      const insertIndex = targetIndex;
       const next = [...withoutSource];
       next.splice(insertIndex, 0, source);
       return next;
@@ -572,6 +626,7 @@ function App() {
     });
     setFolderForm(null);
     setEditorMode(mode);
+    setEditingHostId(mode === "host" ? host?.id ?? null : null);
   }
 
   function startFolderEditor(mode: EditorMode, folder?: FolderView) {
@@ -582,6 +637,17 @@ function App() {
     });
     setHostForm(null);
     setEditorMode(mode);
+    setEditingHostId(null);
+  }
+
+  function cancelEditor() {
+    setEditorMode(null);
+    setEditingHostId(null);
+  }
+
+  function setInspectorCollapsedAndResize(collapsed: boolean) {
+    setInspectorCollapsed(collapsed);
+    window.requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
   }
 
   function updateSidebarWidth(width: number) {
@@ -645,10 +711,21 @@ function App() {
     return <main className="loading">Loading stassh workspace</main>;
   }
 
-  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? detailsTab;
+  const inspectorTarget = resolveInspectorTarget({
+    activeTab,
+    tabs,
+    workspace,
+    selection,
+    selectedHost,
+    selectedFolder,
+    details: details?.host.id === inspectorHostId ? details : null,
+  });
+  const canShowInspector = Boolean(editorMode) || Boolean(inspectorTarget);
+  const inspectorExpanded = canShowInspector && (Boolean(editorMode) || !inspectorCollapsed);
+  const inspectorWidth = inspectorExpanded ? 340 : 0;
 
   return (
-    <div className="appShell" style={{ gridTemplateColumns: `${sidebarWidth}px 8px minmax(380px, 1fr) 340px` }}>
+    <div className="appShell" style={{ gridTemplateColumns: `${sidebarWidth}px 8px minmax(380px, 1fr) ${inspectorWidth}px` }}>
       <aside className="sidebar">
         <div className="sidebarHeader">
           <div className="searchBox">
@@ -676,7 +753,6 @@ function App() {
             selectedId={selection?.type === "host" ? selection.id : null}
             onSelect={(id) => {
               setSelection({ type: "host", id });
-              setActiveTabId("details");
             }}
             onOpen={(hostId) => {
               const host = workspace.hosts.find((item) => item.id === hostId);
@@ -726,85 +802,84 @@ function App() {
       />
 
       <section className="workspace">
-        <div className="tabbar">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              className={`${tab.id === activeTabId ? "active" : ""} ${
-                draggingTabId === tab.id ? "dragging" : ""
-              } ${tabDropTargetId === tab.id ? "dropTarget" : ""} ${
-                tabAddTargetId === tab.id ? "addTarget" : ""
-              }`}
-              draggable={tab.type !== "details"}
-              onClick={() => setActiveTabId(tab.id)}
-              onDragStart={(event) => {
-                if (tab.type === "details") return;
-                setDraggingTabId(tab.id);
-                event.dataTransfer.effectAllowed = tab.type === "terminal" ? "copyMove" : "move";
-                event.dataTransfer.setData("application/x-stassh-tab", tab.id);
-                event.dataTransfer.setData("text/plain", tab.title);
-              }}
-              onDragOver={(event) => {
-                if (!draggingTabId || draggingTabId === tab.id) return;
-                const sourceTab = tabs.find((item) => item.id === draggingTabId);
-                if (sourceTab?.type === "terminal" && tab.type === "layout") {
-                  if (tab.sessionIds.includes(sourceTab.sessionId)) {
-                    event.dataTransfer.dropEffect = "none";
-                    setTabAddTargetId(null);
+        {tabs.length > 0 && (
+          <div className="tabbar">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                className={`${tab.id === activeTab?.id ? "active" : ""} ${
+                  draggingTabId === tab.id ? "dragging" : ""
+                } ${tabDropTargetId === tab.id ? "dropTarget" : ""} ${
+                  tabAddTargetId === tab.id ? "addTarget" : ""
+                }`}
+                draggable
+                onClick={() => setActiveTabId(tab.id)}
+                onDragStart={(event) => {
+                  setDraggingTabId(tab.id);
+                  event.dataTransfer.effectAllowed = tab.type === "terminal" ? "copyMove" : "move";
+                  event.dataTransfer.setData("application/x-stassh-tab", tab.id);
+                  event.dataTransfer.setData("text/plain", tab.title);
+                }}
+                onDragOver={(event) => {
+                  if (!draggingTabId || draggingTabId === tab.id) return;
+                  const sourceTab = tabs.find((item) => item.id === draggingTabId);
+                  if (sourceTab?.type === "terminal" && tab.type === "layout") {
+                    if (tab.sessionIds.includes(sourceTab.sessionId)) {
+                      event.dataTransfer.dropEffect = "none";
+                      setTabAddTargetId(null);
+                      setTabDropTargetId(null);
+                      return;
+                    }
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "copy";
+                    setTabAddTargetId(tab.id);
+                    setTabDropTargetId(null);
+                    return;
+                  }
+                  if (sourceTab?.type === "terminal" && tab.type === "terminal") {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "copy";
+                    setTabAddTargetId(tab.id);
                     setTabDropTargetId(null);
                     return;
                   }
                   event.preventDefault();
-                  event.dataTransfer.dropEffect = "copy";
-                  setTabAddTargetId(tab.id);
-                  setTabDropTargetId(null);
-                  return;
-                }
-                if (sourceTab?.type === "terminal" && tab.type === "terminal") {
+                  event.dataTransfer.dropEffect = "move";
+                  setTabAddTargetId(null);
+                  setTabDropTargetId(tab.id);
+                }}
+                onDragLeave={(event) => {
+                  if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+                  if (tabDropTargetId === tab.id) setTabDropTargetId(null);
+                  if (tabAddTargetId === tab.id) setTabAddTargetId(null);
+                }}
+                onDrop={(event) => {
                   event.preventDefault();
-                  event.dataTransfer.dropEffect = "copy";
-                  setTabAddTargetId(tab.id);
-                  setTabDropTargetId(null);
-                  return;
-                }
-                event.preventDefault();
-                event.dataTransfer.dropEffect = "move";
-                setTabAddTargetId(null);
-                setTabDropTargetId(tab.id);
-              }}
-              onDragLeave={(event) => {
-                if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-                if (tabDropTargetId === tab.id) setTabDropTargetId(null);
-                if (tabAddTargetId === tab.id) setTabAddTargetId(null);
-              }}
-              onDrop={(event) => {
-                event.preventDefault();
-                const sourceId = event.dataTransfer.getData("application/x-stassh-tab") || draggingTabId;
-                if (sourceId) {
-                  const sourceTab = tabs.find((item) => item.id === sourceId);
-                  if (sourceTab?.type === "terminal" && tab.type === "layout") {
-                    if (!tab.sessionIds.includes(sourceTab.sessionId)) {
-                      addTerminalTabToLayout(sourceId, tab.id);
+                  const sourceId = event.dataTransfer.getData("application/x-stassh-tab") || draggingTabId;
+                  if (sourceId) {
+                    const sourceTab = tabs.find((item) => item.id === sourceId);
+                    if (sourceTab?.type === "terminal" && tab.type === "layout") {
+                      if (!tab.sessionIds.includes(sourceTab.sessionId)) {
+                        addTerminalTabToLayout(sourceId, tab.id);
+                      }
+                    } else if (sourceTab?.type === "terminal" && tab.type === "terminal") {
+                      createLayoutFromTerminalTabs(sourceId, tab.id);
+                    } else {
+                      reorderTab(sourceId, tab.id);
                     }
-                  } else if (sourceTab?.type === "terminal" && tab.type === "terminal") {
-                    createLayoutFromTerminalTabs(sourceId, tab.id);
-                  } else {
-                    reorderTab(sourceId, tab.id);
                   }
-                }
-                setDraggingTabId(null);
-                setTabDropTargetId(null);
-                setTabAddTargetId(null);
-              }}
-              onDragEnd={() => {
-                setDraggingTabId(null);
-                setTabDropTargetId(null);
-                setTabAddTargetId(null);
-              }}
-            >
-              {tab.type === "terminal" ? <TerminalSquare size={15} /> : <Monitor size={15} />}
-              <span>{tab.title}</span>
-              {tab.type !== "details" && (
+                  setDraggingTabId(null);
+                  setTabDropTargetId(null);
+                  setTabAddTargetId(null);
+                }}
+                onDragEnd={() => {
+                  setDraggingTabId(null);
+                  setTabDropTargetId(null);
+                  setTabAddTargetId(null);
+                }}
+              >
+                {tab.type === "terminal" ? <TerminalSquare size={15} /> : <Monitor size={15} />}
+                <span>{tab.title}</span>
                 <X
                   size={14}
                   onClick={(event) => {
@@ -812,46 +887,27 @@ function App() {
                     closeTab(tab);
                   }}
                 />
-              )}
+              </button>
+            ))}
+            <button
+              className="tabbarAction"
+              title="Create layout from open terminals"
+              onClick={createLayoutTab}
+              disabled={!tabs.some((tab) => tab.type === "terminal")}
+            >
+              <Plus size={15} /> Layout
             </button>
-          ))}
-          <button
-            className="tabbarAction"
-            title="Create layout from open terminals"
-            onClick={createLayoutTab}
-            disabled={!tabs.some((tab) => tab.type === "terminal")}
-          >
-            <Plus size={15} /> Layout
-          </button>
-        </div>
-        <div className="content">
-          <div className={activeTab.type === "details" ? "tabPanel active" : "tabPanel"}>
-            <DetailsPane
-              host={selectedHost}
-              folder={selectedFolder}
-              details={details}
-              workspace={workspace}
-              onConnect={() => selectedHost && openTerminal(selectedHost)}
-              onEditHost={() => selectedHost && startHostEditor("host", selectedHost)}
-              onEditFolder={() => selectedFolder && startFolderEditor("folder", selectedFolder)}
-              onCopyHost={() =>
-                selectedHost && applySnapshot("copy_host", { hostId: selectedHost.id }, "Host copied")
-              }
-              onDelete={() => {
-                if (selectedHost && window.confirm(`Delete host ${selectedHost.path}?`)) {
-                  applySnapshot("delete_host", { hostId: selectedHost.id }, "Host deleted");
-                } else if (
-                  selectedFolder &&
-                  selectedFolder.parentId &&
-                  window.confirm(`Delete folder ${selectedFolder.path}?`)
-                ) {
-                  applySnapshot("delete_folder", { folderId: selectedFolder.id }, "Folder deleted");
-                }
-              }}
-            />
           </div>
+        )}
+        <div className="content">
+          {!tabs.length && (
+            <DetailsPane
+              workspace={workspace}
+            />
+          )}
           <TerminalStage
             tabs={tabs}
+            hosts={workspace.hosts}
             terminalOrder={terminalOrder}
             activeTab={activeTab}
             fullscreenSessionId={fullscreenSessionId}
@@ -865,28 +921,39 @@ function App() {
         </div>
       </section>
 
-      <aside className="inspector">
-        <Inspector
-          mode={editorMode}
-          workspace={workspace}
-          selection={selection}
-          hostForm={hostForm}
-          setHostForm={setHostForm}
-          folderForm={folderForm}
-          setFolderForm={setFolderForm}
-          onSaveHost={saveHost}
-          onSaveFolder={saveFolder}
-          onCancel={() => setEditorMode(null)}
-          onAssignIdentity={(fingerprint) =>
-            selectedHost &&
-            applySnapshot(
-              fingerprint ? "assign_identity" : "clear_identity",
-              fingerprint ? { hostId: selectedHost.id, fingerprint } : { hostId: selectedHost.id },
-              "Identity updated",
-            )
-          }
-        />
-      </aside>
+      {canShowInspector && (
+        <aside className={`inspector ${inspectorExpanded ? "" : "collapsed"} ${editorMode ? "editing" : ""}`}>
+          <Inspector
+            mode={editorMode}
+            workspace={workspace}
+            target={inspectorTarget}
+            collapsed={inspectorCollapsed && !editorMode}
+            hostForm={hostForm}
+            setHostForm={setHostForm}
+            folderForm={folderForm}
+            setFolderForm={setFolderForm}
+            onSaveHost={saveHost}
+            onSaveFolder={saveFolder}
+            onCancel={cancelEditor}
+            onCollapse={() => setInspectorCollapsedAndResize(true)}
+            onExpand={() => setInspectorCollapsedAndResize(false)}
+            onConnect={(host) => openTerminal(host)}
+            onEditHost={(host) => startHostEditor("host", host)}
+            onEditFolder={(folder) => startFolderEditor("folder", folder)}
+            onCopyHost={(host) => applySnapshot("copy_host", { hostId: host.id }, "Host copied")}
+            onDeleteHost={(host) => {
+              if (window.confirm(`Delete host ${host.path}?`)) {
+                applySnapshot("delete_host", { hostId: host.id }, "Host deleted");
+              }
+            }}
+            onDeleteFolder={(folder) => {
+              if (folder.parentId && window.confirm(`Delete folder ${folder.path}?`)) {
+                applySnapshot("delete_folder", { folderId: folder.id }, "Folder deleted");
+              }
+            }}
+          />
+        </aside>
+      )}
 
       <footer className="statusbar">
         <span>{status}</span>
@@ -1106,100 +1173,36 @@ function SearchResults(props: {
 }
 
 function DetailsPane(props: {
-  host: HostView | null;
-  folder: FolderView | null;
-  details: HostDetails | null;
   workspace: WorkspaceSnapshot;
-  onConnect: () => void;
-  onEditHost: () => void;
-  onEditFolder: () => void;
-  onCopyHost: () => void;
-  onDelete: () => void;
 }) {
-  if (props.host) {
-    return (
-      <div className="details">
-        <div className="actionbar">
-          <button onClick={props.onConnect}>
-            <TerminalSquare size={16} /> Connect
-          </button>
-          <button onClick={props.onEditHost}>
-            <Save size={16} /> Edit
-          </button>
-          <button onClick={props.onCopyHost}>
-            <Copy size={16} /> Copy
-          </button>
-          <button className="danger" onClick={props.onDelete}>
-            <Trash2 size={16} /> Delete
-          </button>
-        </div>
-        <h2>{props.host.path}</h2>
-        <div className="detailGrid">
-          <label>HostName</label>
-          <span>{props.host.hostname}</span>
-          <label>Port</label>
-          <span>{props.host.port}</span>
-          <label>User</label>
-          <span>{props.host.username || "OpenSSH default"}</span>
-          <label>Identity</label>
-          <span>{props.host.identityFingerprint || "none"}</span>
-          <label>Secrets</label>
-          <span>{props.host.secrets || "none"}</span>
-          <label>Actions</label>
-          <span>{props.host.actionCount}</span>
-          <label>Tags</label>
-          <span>{props.host.tags.join(", ") || "none"}</span>
-          <label>Notes</label>
-          <span>{props.host.notes || "none"}</span>
-        </div>
-        <section>
-          <h3>OpenSSH Preview</h3>
-          <code>{props.details?.sshCommand ?? "Preparing command"}</code>
-        </section>
-        <section>
-          <h3>Jump Chain</h3>
-          {props.details?.jumps.length ? (
-            props.details.jumps.map((jump) => (
-              <p key={jump.id}>
-                {jump.displayName} - {jump.username ? `${jump.username}@` : ""}
-                {jump.hostname}:{jump.port}
-              </p>
-            ))
-          ) : (
-            <p>No jumps configured</p>
-          )}
-        </section>
-        <section>
-          <h3>Diagnostics</h3>
-          <Diagnostics diagnostics={props.details?.diagnostics ?? []} />
-        </section>
+  return (
+    <div className="details homeDetails">
+      <h2>Workspace</h2>
+      <div className="detailGrid">
+        <label>Vault</label>
+        <span>{props.workspace.vaultPath}</span>
+        <label>Local Config</label>
+        <span>{props.workspace.localConfigPath}</span>
+        <label>Secrets</label>
+        <span>{props.workspace.secretsAvailable ? props.workspace.secretsPath : "not available"}</span>
+        <label>Hosts</label>
+        <span>{props.workspace.hosts.length}</span>
+        <label>Folders</label>
+        <span>{props.workspace.folders.length}</span>
       </div>
-    );
-  }
-  if (props.folder) {
-    return (
-      <div className="details">
-        <div className="actionbar">
-          <button onClick={props.onEditFolder}>
-            <Save size={16} /> Rename
-          </button>
-          <button className="danger" onClick={props.onDelete} disabled={!props.folder.parentId}>
-            <Trash2 size={16} /> Delete
-          </button>
-        </div>
-        <h2>{props.folder.path}</h2>
-        <p>{props.folder.hostCount} direct hosts</p>
+      <section>
+        <h3>Diagnostics</h3>
         <Diagnostics diagnostics={props.workspace.diagnostics} />
-      </div>
-    );
-  }
-  return <div className="empty">Select a host or folder</div>;
+      </section>
+    </div>
+  );
 }
 
 function Inspector(props: {
   mode: EditorMode;
   workspace: WorkspaceSnapshot;
-  selection: Selection | null;
+  target: InspectorTarget;
+  collapsed: boolean;
   hostForm: HostForm | null;
   setHostForm: (form: HostForm | null) => void;
   folderForm: FolderForm | null;
@@ -1207,14 +1210,30 @@ function Inspector(props: {
   onSaveHost: () => void;
   onSaveFolder: () => void;
   onCancel: () => void;
-  onAssignIdentity: (fingerprint: string) => void;
+  onCollapse: () => void;
+  onExpand: () => void;
+  onConnect: (host: HostView) => void;
+  onEditHost: (host: HostView) => void;
+  onEditFolder: (folder: FolderView) => void;
+  onCopyHost: (host: HostView) => void;
+  onDeleteHost: (host: HostView) => void;
+  onDeleteFolder: (folder: FolderView) => void;
 }) {
+  if (props.collapsed) {
+    return (
+      <button className="inspectorExpandButton" title="Show inspector" onClick={props.onExpand}>
+        <PanelRightOpen size={16} />
+      </button>
+    );
+  }
+
   if ((props.mode === "host" || props.mode === "new-host") && props.hostForm) {
     const form = props.hostForm;
     const setForm = (patch: Partial<HostForm>) => props.setHostForm({ ...form, ...patch });
     return (
       <div className="editor">
-        <h2>{props.mode === "new-host" ? "New Host" : "Edit Host"}</h2>
+        <EditorHeader title={props.mode === "new-host" ? "New Host" : "Edit Host"} />
+        <EditorActions onSave={props.onSaveHost} onCancel={props.onCancel} />
         <Field label="Name" value={form.displayName} onChange={(displayName) => setForm({ displayName })} />
         <Field label="HostName" value={form.hostname} onChange={(hostname) => setForm({ hostname })} />
         <Field label="Port" value={form.port} onChange={(port) => setForm({ port })} />
@@ -1230,10 +1249,7 @@ function Inspector(props: {
         <label>Identity</label>
         <select
           value={form.identityFingerprint}
-          onChange={(event) => {
-            setForm({ identityFingerprint: event.target.value });
-            if (props.selection?.type === "host") props.onAssignIdentity(event.target.value);
-          }}
+          onChange={(event) => setForm({ identityFingerprint: event.target.value })}
         >
           <option value="">none</option>
           {props.workspace.identities.map((identity) => (
@@ -1248,7 +1264,6 @@ function Inspector(props: {
         <label>Notes</label>
         <textarea value={form.notes} onChange={(event) => setForm({ notes: event.target.value })} />
         <ForwardEditor forwards={form.forwards} onChange={(forwards) => setForm({ forwards })} />
-        <EditorActions onSave={props.onSaveHost} onCancel={props.onCancel} />
       </div>
     );
   }
@@ -1257,7 +1272,8 @@ function Inspector(props: {
     const setForm = (patch: Partial<FolderForm>) => props.setFolderForm({ ...form, ...patch });
     return (
       <div className="editor">
-        <h2>{props.mode === "new-folder" ? "New Folder" : "Rename Folder"}</h2>
+        <EditorHeader title={props.mode === "new-folder" ? "New Folder" : "Rename Folder"} />
+        <EditorActions onSave={props.onSaveFolder} onCancel={props.onCancel} />
         <Field label="Name" value={form.name} onChange={(name) => setForm({ name })} />
         {props.mode === "new-folder" && (
           <>
@@ -1271,22 +1287,246 @@ function Inspector(props: {
             </select>
           </>
         )}
-        <EditorActions onSave={props.onSaveFolder} onCancel={props.onCancel} />
       </div>
     );
   }
+
+  if (props.target?.type === "host") {
+    return (
+      <HostInspectorDetails
+        target={props.target}
+        onCollapse={props.onCollapse}
+        onConnect={props.onConnect}
+        onEdit={props.onEditHost}
+        onCopy={props.onCopyHost}
+        onDelete={props.onDeleteHost}
+      />
+    );
+  }
+
+  if (props.target?.type === "folder") {
+    return (
+      <FolderInspectorDetails
+        folder={props.target.folder}
+        diagnostics={props.workspace.diagnostics}
+        onCollapse={props.onCollapse}
+        onEdit={props.onEditFolder}
+        onDelete={props.onDeleteFolder}
+      />
+    );
+  }
+
+  if (props.target?.type === "layout") {
+    return <LayoutInspectorDetails layout={props.target.layout} onCollapse={props.onCollapse} />;
+  }
+
   return (
     <div className="inspectorEmpty">
-      <h2>Inspector</h2>
-      <p>Open an editor from the details pane or create a new host or folder.</p>
+      <InspectorHeader title="Inspector" subtitle="No active item" onCollapse={props.onCollapse} />
+      <p>Select a host, folder, terminal, or layout pane.</p>
     </div>
   );
 }
 
+function InspectorHeader(props: { title: string; subtitle: string; onCollapse: () => void }) {
+  return (
+    <div className="inspectorHeader">
+      <div>
+        <h2>{props.title}</h2>
+        <small>{props.subtitle}</small>
+      </div>
+      <button className="iconOnlyButton" title="Collapse inspector" onClick={props.onCollapse}>
+        <PanelRightClose size={16} />
+      </button>
+    </div>
+  );
+}
+
+function EditorHeader(props: { title: string }) {
+  return (
+    <div className="editorHeader">
+      <h2>{props.title}</h2>
+    </div>
+  );
+}
+
+function HostInspectorDetails(props: {
+  target: Extract<InspectorTarget, { type: "host" }>;
+  onCollapse: () => void;
+  onConnect: (host: HostView) => void;
+  onEdit: (host: HostView) => void;
+  onCopy: (host: HostView) => void;
+  onDelete: (host: HostView) => void;
+}) {
+  const { host, details, terminal, source } = props.target;
+  const subtitle =
+    source === "terminal"
+      ? `${terminal?.status ?? "session"} session`
+      : source === "layout"
+        ? `${terminal?.title ?? host.displayName} pane`
+        : "Selected host";
+  return (
+    <div className="inspectorDetails">
+      <InspectorHeader title={host.displayName} subtitle={subtitle} onCollapse={props.onCollapse} />
+      <div className="inspectorActions">
+        <button onClick={() => props.onConnect(host)}>
+          <TerminalSquare size={16} /> Connect
+        </button>
+        <button onClick={() => props.onEdit(host)}>
+          <Pencil size={16} /> Edit
+        </button>
+        <button onClick={() => props.onCopy(host)}>
+          <Copy size={16} /> Copy
+        </button>
+        <button className="danger" onClick={() => props.onDelete(host)}>
+          <Trash2 size={16} /> Delete
+        </button>
+      </div>
+      <DetailList>
+        <DetailRow label="Path" value={host.path} />
+        <DetailRow label="HostName" value={host.hostname} />
+        <DetailRow label="Port" value={String(host.port)} />
+        <DetailRow label="User" value={host.username || "OpenSSH default"} />
+        <DetailRow label="Identity" value={host.identityFingerprint || "none"} />
+        <DetailRow label="Secrets" value={host.secrets || "none"} />
+        <DetailRow label="Actions" value={String(host.actionCount)} />
+        <DetailRow label="Tags" value={host.tags.join(", ") || "none"} />
+        <DetailRow label="Notes" value={host.notes || "none"} />
+      </DetailList>
+      <section>
+        <h3>OpenSSH Preview</h3>
+        <code>{details?.sshCommand ?? "Preparing command"}</code>
+      </section>
+      <section>
+        <h3>Jump Chain</h3>
+        {details?.jumps.length ? (
+          details.jumps.map((jump) => (
+            <p key={jump.id}>
+              {jump.displayName} - {jump.username ? `${jump.username}@` : ""}
+              {jump.hostname}:{jump.port}
+            </p>
+          ))
+        ) : (
+          <p>No jumps configured</p>
+        )}
+      </section>
+      <section>
+        <h3>Diagnostics</h3>
+        <Diagnostics diagnostics={details?.diagnostics ?? []} />
+      </section>
+    </div>
+  );
+}
+
+function FolderInspectorDetails(props: {
+  folder: FolderView;
+  diagnostics: DiagnosticView[];
+  onCollapse: () => void;
+  onEdit: (folder: FolderView) => void;
+  onDelete: (folder: FolderView) => void;
+}) {
+  return (
+    <div className="inspectorDetails">
+      <InspectorHeader title={props.folder.name} subtitle="Selected folder" onCollapse={props.onCollapse} />
+      <div className="inspectorActions">
+        <button onClick={() => props.onEdit(props.folder)}>
+          <Pencil size={16} /> Rename
+        </button>
+        <button className="danger" onClick={() => props.onDelete(props.folder)} disabled={!props.folder.parentId}>
+          <Trash2 size={16} /> Delete
+        </button>
+      </div>
+      <DetailList>
+        <DetailRow label="Path" value={props.folder.path} />
+        <DetailRow label="Direct Hosts" value={String(props.folder.hostCount)} />
+      </DetailList>
+      <section>
+        <h3>Diagnostics</h3>
+        <Diagnostics diagnostics={props.diagnostics} />
+      </section>
+    </div>
+  );
+}
+
+function LayoutInspectorDetails(props: { layout: Extract<Tab, { type: "layout" }>; onCollapse: () => void }) {
+  return (
+    <div className="inspectorDetails">
+      <InspectorHeader title={props.layout.title} subtitle="Layout" onCollapse={props.onCollapse} />
+      <DetailList>
+        <DetailRow label="Mode" value={props.layout.mode === "main" ? "Main pane" : "Grid"} />
+        <DetailRow label="Panes" value={String(props.layout.sessionIds.length)} />
+        <DetailRow label="Broadcast" value={props.layout.broadcastInput ? "on" : "off"} />
+      </DetailList>
+    </div>
+  );
+}
+
+function DetailList(props: { children: React.ReactNode }) {
+  return <div className="inspectorDetailList">{props.children}</div>;
+}
+
+function DetailRow(props: { label: string; value: string }) {
+  return (
+    <>
+      <label>{props.label}</label>
+      <span>{props.value}</span>
+    </>
+  );
+}
+
+function resolveInspectorTarget({
+  activeTab,
+  tabs,
+  workspace,
+  selection,
+  selectedHost,
+  selectedFolder,
+  details,
+}: {
+  activeTab: Tab | null;
+  tabs: Tab[];
+  workspace: WorkspaceSnapshot;
+  selection: Selection | null;
+  selectedHost: HostView | null;
+  selectedFolder: FolderView | null;
+  details: HostDetails | null;
+}): InspectorTarget {
+  if (!activeTab) {
+    if (selection?.type === "host" && selectedHost) {
+      return { type: "host", source: "details", host: selectedHost, details, terminal: null };
+    }
+    if (selection?.type === "folder" && selectedFolder) {
+      return { type: "folder", source: "details", folder: selectedFolder };
+    }
+    return null;
+  }
+  if (activeTab.type === "terminal") {
+    const host = workspace.hosts.find((item) => item.id === activeTab.hostId);
+    return host ? { type: "host", source: "terminal", host, details, terminal: activeTab } : null;
+  }
+  if (activeTab.type === "layout") {
+    const activeSessionId = activeTab.activeSessionId ?? activeTab.sessionIds[0];
+    const terminal =
+      tabs.find(
+        (tab): tab is Extract<Tab, { type: "terminal" }> => tab.type === "terminal" && tab.sessionId === activeSessionId,
+      ) ?? null;
+    const host = terminal ? workspace.hosts.find((item) => item.id === terminal.hostId) ?? null : null;
+    return host ? { type: "host", source: "layout", host, details, terminal } : { type: "layout", source: "layout", layout: activeTab };
+  }
+  if (selection?.type === "host" && selectedHost) {
+    return { type: "host", source: "details", host: selectedHost, details, terminal: null };
+  }
+  if (selection?.type === "folder" && selectedFolder) {
+    return { type: "folder", source: "details", folder: selectedFolder };
+  }
+  return null;
+}
+
 function TerminalStage(props: {
   tabs: Tab[];
+  hosts: HostView[];
   terminalOrder: Id[];
-  activeTab: Tab;
+  activeTab: Tab | null;
   fullscreenSessionId: Id | null;
   onInput: (sessionId: Id, data: string) => void;
   onActivateTab: (tabId: Id) => void;
@@ -1306,9 +1546,10 @@ function TerminalStage(props: {
       .filter((tab): tab is Extract<Tab, { type: "terminal" }> => Boolean(tab)),
     ...Array.from(terminalById.values()).filter((tab) => !props.terminalOrder.includes(tab.sessionId)),
   ];
-  const layout = props.activeTab.type === "layout" ? props.activeTab : null;
+  const hostsById = new Map(props.hosts.map((host) => [host.id, host]));
+  const layout = props.activeTab?.type === "layout" ? props.activeTab : null;
   const visibleSessionIds =
-    props.activeTab.type === "terminal"
+    props.activeTab?.type === "terminal"
       ? [props.activeTab.sessionId]
       : layout
         ? layout.sessionIds
@@ -1318,8 +1559,8 @@ function TerminalStage(props: {
   );
   const focusedSessionId =
     props.fullscreenSessionId ??
-    (props.activeTab.type === "terminal" ? props.activeTab.sessionId : layout?.activeSessionId ?? null);
-  const modeClass = layout ? `layoutMode ${layout.mode}` : props.activeTab.type === "terminal" ? "singleMode" : "";
+    (props.activeTab?.type === "terminal" ? props.activeTab.sessionId : layout?.activeSessionId ?? null);
+  const modeClass = layout ? `layoutMode ${layout.mode}` : props.activeTab?.type === "terminal" ? "singleMode" : "";
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
@@ -1392,10 +1633,12 @@ function TerminalStage(props: {
           const focused = focusedSessionId === tab.sessionId;
           const fullscreen = props.fullscreenSessionId === tab.sessionId;
           const paneStyle = layout ? layoutPaneStyle(layout, tab.sessionId) : undefined;
+          const notes = hostsById.get(tab.hostId)?.notes ?? null;
           return (
             <TerminalPane
               key={tab.sessionId}
               tab={tab}
+              notes={notes}
               visible={visible}
               focused={focused}
               fullscreen={fullscreen}
@@ -1439,6 +1682,7 @@ function TerminalStage(props: {
 
 function TerminalPane({
   tab,
+  notes,
   visible,
   focused,
   fullscreen,
@@ -1452,6 +1696,7 @@ function TerminalPane({
   onExitFullscreen,
 }: {
   tab: Extract<Tab, { type: "terminal" }>;
+  notes: string | null;
   visible: boolean;
   focused: boolean;
   fullscreen: boolean;
@@ -1465,18 +1710,81 @@ function TerminalPane({
   onExitFullscreen: () => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const searchRef = useRef<SearchAddon | null>(null);
   const activeRef = useRef(visible);
+  const focusedRef = useRef(focused);
   const inputRef = useRef(onInput);
+  const displayNotes = notes?.trim() || null;
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findCaseSensitive, setFindCaseSensitive] = useState(false);
+  const [findResult, setFindResult] = useState({ index: 0, count: 0 });
+  const findOpenRef = useRef(findOpen);
 
   useEffect(() => {
     activeRef.current = visible;
   }, [visible]);
 
   useEffect(() => {
+    focusedRef.current = focused;
+  }, [focused]);
+
+  useEffect(() => {
+    findOpenRef.current = findOpen;
+  }, [findOpen]);
+
+  useEffect(() => {
     inputRef.current = onInput;
   }, [onInput]);
+
+  useEffect(() => {
+    if (!findOpen || !focused) return;
+    const frame = window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [findOpen, focused]);
+
+  function clearFind() {
+    try {
+      searchRef.current?.clearDecorations();
+    } catch (error) {
+      console.error("terminal find clear failed", error);
+    }
+    setFindResult({ index: 0, count: 0 });
+  }
+
+  function runFind(direction: "next" | "previous", query = findQuery) {
+    const search = searchRef.current;
+    if (!search) return;
+    if (!query) {
+      clearFind();
+      return;
+    }
+    try {
+      const options = { caseSensitive: findCaseSensitive, incremental: true };
+      const found = direction === "previous" ? search.findPrevious(query, options) : search.findNext(query, options);
+      setFindResult({ index: found ? 1 : 0, count: found ? 1 : 0 });
+    } catch (error) {
+      console.error("terminal find failed", error);
+      setFindResult({ index: 0, count: 0 });
+    }
+  }
+
+  function closeFind() {
+    setFindOpen(false);
+    clearFind();
+    terminalRef.current?.focus();
+  }
+
+  useEffect(() => {
+    if (!findOpen) return;
+    runFind("next");
+  }, [findOpen, findQuery, findCaseSensitive]);
 
   function resizeTerminal() {
     const terminal = terminalRef.current;
@@ -1501,16 +1809,49 @@ function TerminalPane({
         background: "#101317",
         foreground: "#dce2ea",
         cursor: "#f0b95a",
+        selectionBackground: "#f0b95a",
+        selectionForeground: "#101317",
+        selectionInactiveBackground: "#b98732",
       },
     });
     const fit = new FitAddon();
+    const search = new SearchAddon({ highlightLimit: 1000 });
     terminal.loadAddon(fit);
+    terminal.loadAddon(search);
     terminal.open(ref.current);
     terminalRef.current = terminal;
     fitRef.current = fit;
+    searchRef.current = search;
     fit.fit();
 
     terminal.onData((data) => inputRef.current(tab.sessionId, data));
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (
+        event.type === "keydown" &&
+        activeRef.current &&
+        focusedRef.current &&
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "f"
+      ) {
+        setFindOpen(true);
+        window.requestAnimationFrame(() => {
+          searchInputRef.current?.focus();
+          searchInputRef.current?.select();
+        });
+        return false;
+      }
+      if (
+        event.type === "keydown" &&
+        activeRef.current &&
+        focusedRef.current &&
+        findOpenRef.current &&
+        event.key === "Escape"
+      ) {
+        closeFind();
+        return false;
+      }
+      return true;
+    });
     const onData = (event: Event) => terminal.write((event as CustomEvent<string>).detail);
     window.addEventListener(`terminal-data:${tab.sessionId}`, onData);
     window.addEventListener("resize", resizeTerminal);
@@ -1521,6 +1862,7 @@ function TerminalPane({
       window.removeEventListener("resize", resizeTerminal);
       terminalRef.current = null;
       fitRef.current = null;
+      searchRef.current = null;
       terminal.dispose();
     };
   }, [tab.sessionId]);
@@ -1543,7 +1885,54 @@ function TerminalPane({
       onMouseDown={onFocus}
     >
       <div className="terminalStatus">
-        <span>{tab.title}</span>
+        <div className="terminalTitle">
+          <span className="terminalHostTitle">{tab.title}</span>
+          {displayNotes && <span className="terminalNotes">{displayNotes}</span>}
+        </div>
+        {focused &&
+          (findOpen ? (
+            <div className="terminalFind">
+              <input
+                ref={searchInputRef}
+                value={findQuery}
+                onChange={(event) => setFindQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    closeFind();
+                  } else if (event.key === "Enter") {
+                    event.preventDefault();
+                    runFind(event.shiftKey ? "previous" : "next");
+                  }
+                }}
+                placeholder="Find"
+              />
+              <button title="Previous match" disabled={!findQuery} onClick={() => runFind("previous")}>
+                <ChevronUp size={13} />
+              </button>
+              <button title="Next match" disabled={!findQuery} onClick={() => runFind("next")}>
+                <ChevronDown size={13} />
+              </button>
+              <button
+                className={findCaseSensitive ? "active" : ""}
+                title="Case sensitive"
+                aria-pressed={findCaseSensitive}
+                onClick={() => setFindCaseSensitive((current) => !current)}
+              >
+                <CaseSensitive size={14} />
+              </button>
+              <span className="terminalFindCount">
+                {findQuery ? (findResult.count ? "Match" : "0/0") : ""}
+              </span>
+              <button title="Close find" onClick={closeFind}>
+                <X size={13} />
+              </button>
+            </div>
+          ) : (
+            <button className="terminalFindButton" title="Find" onClick={() => setFindOpen(true)}>
+              <Search size={13} />
+            </button>
+          ))}
         <small>{tab.status}</small>
         {showPaneControls && (
           <div className="paneActions">

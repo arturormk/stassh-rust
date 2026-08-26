@@ -139,6 +139,16 @@ code {
   background: #181c22;
 }
 
+.inspector.collapsed {
+  overflow: visible;
+  border-left: 0;
+  background: transparent;
+}
+
+.inspector.editing {
+  overflow: auto;
+}
+
 .workspace {
   display: flex;
   min-width: 0;
@@ -485,14 +495,17 @@ code {
 
 .details h2,
 .editor h2,
-.inspectorEmpty h2 {
+.inspectorEmpty h2,
+.inspectorHeader h2,
+.editorHeader h2 {
   margin: 0 0 16px;
   font-size: 21px;
   letter-spacing: 0;
 }
 
 .details h3,
-.forwards h3 {
+.forwards h3,
+.inspectorDetails h3 {
   margin: 22px 0 8px;
   font-size: 14px;
   color: #bac5d1;
@@ -527,11 +540,105 @@ code {
 }
 
 .editor,
-.inspectorEmpty {
+.inspectorEmpty,
+.inspectorDetails {
   display: flex;
   flex-direction: column;
   gap: 9px;
   padding: 18px;
+}
+
+.editorHeader {
+  border-bottom: 1px solid #2d333c;
+  margin: -18px -18px 8px;
+  padding: 14px 18px 12px;
+}
+
+.editorHeader h2 {
+  overflow: hidden;
+  margin-bottom: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.homeDetails {
+  max-width: 760px;
+}
+
+.inspectorHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  border-bottom: 1px solid #2d333c;
+  margin: -18px -18px 8px;
+  padding: 14px 12px 12px 18px;
+}
+
+.inspectorHeader h2 {
+  overflow: hidden;
+  margin-bottom: 4px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inspectorHeader small {
+  display: block;
+  overflow: hidden;
+  color: #94a0ad;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iconOnlyButton,
+.inspectorExpandButton {
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  gap: 0;
+  padding: 0;
+}
+
+.inspectorExpandButton {
+  position: fixed;
+  top: 48px;
+  right: 8px;
+  z-index: 20;
+  border-color: #465465;
+  background: #1d232b;
+}
+
+.inspectorActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 4px;
+}
+
+.inspectorDetailList {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 8px 12px;
+  border-top: 1px solid #2d333c;
+  border-bottom: 1px solid #2d333c;
+  padding: 12px 0;
+}
+
+.inspectorDetailList label {
+  color: #94a0ad;
+  font-size: 12px;
+}
+
+.inspectorDetailList span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.inspectorDetails section p,
+.inspectorEmpty p {
+  margin: 6px 0;
+  color: #cfd7e2;
 }
 
 .editor label {
@@ -559,7 +666,7 @@ code {
 
 .terminalStatus {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
   gap: 8px;
   align-items: center;
   min-height: 30px;
@@ -569,19 +676,88 @@ code {
   padding: 4px 8px;
 }
 
-.terminalStatus span,
+.terminalStatus:has(.terminalFind) {
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 320px) auto auto auto;
+}
+
+.terminalTitle,
 .terminalStatus small {
   overflow: hidden;
+  white-space: nowrap;
+}
+
+.terminalTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.terminalHostTitle {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: #dce2ea;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.terminalStatus span {
-  color: #dce2ea;
+.terminalNotes {
+  flex: 1 1 auto;
+  min-width: 24px;
+  overflow: hidden;
+  color: #697481;
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 28px), transparent);
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 28px), transparent);
+  text-overflow: clip;
+  white-space: nowrap;
 }
 
 .terminalStatus small {
   color: #94a0ad;
+  text-overflow: ellipsis;
+}
+
+.terminalFind {
+  display: grid;
+  grid-template-columns: minmax(58px, 1fr) repeat(3, 24px) minmax(38px, auto) 24px;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+}
+
+.terminalFind input {
+  min-width: 0;
+  height: 22px;
+  padding: 3px 6px;
+  font-size: 11px;
+}
+
+.terminalFind button,
+.terminalFindButton {
+  justify-content: center;
+  width: 24px;
+  min-height: 22px;
+  gap: 0;
+  border-color: #2d3844;
+  background: #192028;
+  color: #bac5d1;
+  padding: 3px;
+}
+
+.terminalFind button.active {
+  border-color: #38a8ff;
+  color: #071018;
+  background: #38a8ff;
+}
+
+.terminalFindCount {
+  overflow: hidden;
+  color: #94a0ad;
+  font-size: 11px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .paneActions {

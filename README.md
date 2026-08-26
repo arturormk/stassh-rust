@@ -15,9 +15,9 @@ OpenSSH connections without giving up plain-file portability.
 The longer-term project direction is documented in `docs/BLUEPRINT.md` and `docs/plan/`.
 
 The CLI and TUI are the most mature frontends today. `stassh-gui` now exists as
-an MVP desktop frontend with host browsing, editing, search, diagnostics, and
-embedded OpenSSH terminal sessions. Some peripheral UI areas, especially the
-Details tab and right-side Inspector, still need redesign and polish.
+an MVP desktop frontend with host browsing, editing, search, contextual
+inspection, diagnostics, and embedded OpenSSH terminal sessions. GUI action
+running/editing surfaces still need deeper workflow coverage.
 
 ## Current Status
 
@@ -49,19 +49,19 @@ Implemented now:
 - optional structured JSON output for CLI commands
 - `stassh-tui` for browsing, searching, inspecting, connecting, running actions, and basic vault editing
 - optional `stassh-tui` tmux/byobu window launch with `t` for multiple simultaneous SSH sessions
-- `stassh-gui` MVP with a Tauri desktop shell, host tree, search, details,
-  inspector/editor panel, embedded xterm.js terminal tabs, GUI-managed PTYs, and
-  OpenSSH-backed connections
+- `stassh-gui` MVP with a Tauri desktop shell, host tree, search,
+  contextual inspector/editor panel, embedded xterm.js terminal tabs,
+  GUI-managed PTYs, and OpenSSH-backed connections
 - GUI terminal layout tabs with equal-grid and main-pane modes, drag/drop
   terminal-to-layout composition, layout-local broadcast input, internal
-  full-screen terminal panes, and host-tree open-session indicators
+  full-screen terminal panes, per-terminal find, and host-tree open-session
+  indicators
 
 Not implemented yet:
 
 - encrypted vaults
 - synchronization journals
 - automatic identity discovery by scanning `~/.ssh` or `ssh-agent`
-- polished `stassh-gui` Details/Inspector redesign
 - GUI action running/editing surfaces
 - action editing commands and TUI action editors
 
@@ -461,8 +461,9 @@ generation, and vault edits.
 Current GUI capabilities:
 
 - browse the host/folder tree and search hosts
-- inspect selected host or folder details, including generated OpenSSH command
-  preview and diagnostics
+- inspect selected hosts, folders, active terminal sessions, and layout state in
+  a contextual right-side Inspector, including generated OpenSSH command preview
+  and diagnostics
 - create, edit, copy, delete, and move hosts
 - create, rename, move, and delete folders where allowed
 - assign or clear a host identity from local mappings
@@ -477,6 +478,10 @@ Current GUI capabilities:
 - use layout-local Broadcast mode to send terminal input from one pane to all
   panes in that layout
 - make the selected terminal pane internally full-screen inside the app window
+- search terminal scrollback from the focused pane, with optional
+  case-sensitive matching
+- show host notes in terminal headers when notes are available
+- confirm before closing a still-running terminal session
 - see host-tree indicators for how many SSH sessions are open for each host
 
 The GUI currently stores session tabs, layouts, and terminal state only in
@@ -485,10 +490,7 @@ does not persist layouts across restart yet.
 
 Known GUI polish work:
 
-- redesign the Details tab and right-side Inspector for better scanning and
-  editing flow
 - add stronger action-running and action-editing surfaces
-- add close-session confirmation for still-running sessions
 - broaden manual and screenshot regression coverage for terminal layouts
 
 ## Duplicate Host Reports
