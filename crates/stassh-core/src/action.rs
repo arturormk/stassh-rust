@@ -367,6 +367,7 @@ mod tests {
             port: 22,
             username: Some("arturo".to_string()),
             identity_fingerprint: None,
+            secrets: None,
             jump_chain: Vec::new(),
             ssh_options: Vec::new(),
             forwards: Vec::new(),

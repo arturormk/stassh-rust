@@ -193,6 +193,51 @@ fn json_host_identity_uses_fingerprint_field() {
 }
 
 #[test]
+fn json_host_add_and_edit_manage_secrets_reference() {
+    let dir = temp_dir("json-host-secrets");
+    init_vault(&dir);
+
+    let added = run_json(&[
+        "--vault",
+        &vault_path(&dir),
+        "--output",
+        "json",
+        "host",
+        "add",
+        "web",
+        "web.example.com",
+        "--secrets",
+        "site-a",
+    ]);
+    assert_eq!(added["host"]["secrets"], "site-a");
+
+    let updated = run_json(&[
+        "--vault",
+        &vault_path(&dir),
+        "--output",
+        "json",
+        "host",
+        "edit",
+        "web",
+        "--secrets",
+        "site-b",
+    ]);
+    assert_eq!(updated["host"]["secrets"], "site-b");
+
+    let cleared = run_json(&[
+        "--vault",
+        &vault_path(&dir),
+        "--output",
+        "json",
+        "host",
+        "edit",
+        "web",
+        "--clear-secrets",
+    ]);
+    assert!(cleared["host"]["secrets"].is_null());
+}
+
+#[test]
 fn action_dry_run_reports_forwarded_vnc_plan() {
     let dir = temp_dir("action-dry-run");
     init_vault(&dir);

@@ -1,5 +1,6 @@
 use std::{
     collections::BTreeSet,
+    fmt,
     path::PathBuf,
     time::{Duration, Instant},
 };
@@ -8,10 +9,12 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use stassh_core::{
-    ActionDefinition, AddHost, Folder, Host, HostSelector, LocalConfig, UpdateHost, Vault,
-    load_local_config, load_vault, save_vault,
+    ActionDefinition, AddHost, Folder, Host, HostSelector, LocalConfig, SecretField,
+    SecretPlaintext, SecretsStore, UpdateHost, Vault, load_local_config, load_secrets, load_vault,
+    save_vault,
 };
 use uuid::Uuid;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::editor::{
     EditorAction, FolderEditor, FolderEditorMode, ForwardEditor, HostEditor, HostEditorMode,
@@ -45,8 +48,10 @@ enum MouseTarget {
 pub(crate) struct App {
     pub(crate) vault_path: PathBuf,
     pub(crate) local_config_path: PathBuf,
+    pub(crate) secrets_path: PathBuf,
     pub(crate) vault: Vault,
     pub(crate) local_config: LocalConfig,
+    pub(crate) secrets_store: Option<SecretsStore>,
     pub(crate) tree: Vec<TreeItem>,
     pub(crate) selected: usize,
     pub(crate) search_selected: usize,
@@ -56,6 +61,8 @@ pub(crate) struct App {
     pub(crate) identity_editor: Option<IdentityEditor>,
     pub(crate) jump_editor: Option<JumpEditor>,
     pub(crate) forward_editor: Option<ForwardEditor>,
+    pub(crate) secrets_view: Option<SecretsView>,
+    pub(crate) reveal_prompt: Option<RevealPrompt>,
     pub(crate) pending_delete: Option<DeleteConfirmation>,
     pub(crate) selected_hosts: BTreeSet<Uuid>,
     pub(crate) collapsed_folders: BTreeSet<Uuid>,
@@ -75,8 +82,10 @@ impl App {
     pub(crate) fn new(
         vault_path: PathBuf,
         local_config_path: PathBuf,
+        secrets_path: PathBuf,
         vault: Vault,
         local_config: LocalConfig,
+        secrets_store: Option<SecretsStore>,
         tmux_available: bool,
     ) -> Self {
         let collapsed_folders = default_collapsed_folders(&vault);
@@ -84,8 +93,10 @@ impl App {
         Self {
             vault_path,
             local_config_path,
+            secrets_path,
             vault,
             local_config,
+            secrets_store,
             tree,
             selected: 0,
             search_selected: 0,
@@ -95,6 +106,8 @@ impl App {
             identity_editor: None,
             jump_editor: None,
             forward_editor: None,
+            secrets_view: None,
+            reveal_prompt: None,
             pending_delete: None,
             selected_hosts: BTreeSet::new(),
             collapsed_folders,
@@ -124,6 +137,8 @@ impl App {
             Mode::EditIdentity => self.handle_identity_editor_key(key),
             Mode::EditJumps => self.handle_jump_editor_key(key),
             Mode::EditForwards => self.handle_forward_editor_key(key),
+            Mode::Secrets => Ok(self.handle_secrets_key(key)),
+            Mode::RevealSecret => self.handle_reveal_secret_key(key),
             Mode::ActionPalette => Ok(self.handle_action_palette_key(key)),
             Mode::ConfirmDelete => self.handle_delete_key(key),
             Mode::PickMoveFolder => self.handle_move_folder_key(key),
@@ -166,6 +181,7 @@ impl App {
             KeyCode::Char('J') => self.start_edit_selected_jumps(),
             KeyCode::Char('F') => self.start_edit_selected_forwards(),
             KeyCode::Char('a') => self.start_action_palette(),
+            KeyCode::Char('s') => self.start_secrets_view(),
             KeyCode::Char('C') => self.copy_selected_host()?,
             KeyCode::Char('n') => self.start_create_host(),
             KeyCode::Char('f') => self.start_create_folder(),
@@ -236,6 +252,8 @@ impl App {
             | Mode::EditIdentity
             | Mode::EditJumps
             | Mode::EditForwards
+            | Mode::Secrets
+            | Mode::RevealSecret
             | Mode::ActionPalette
             | Mode::ConfirmDelete => None,
         }
@@ -429,6 +447,58 @@ impl App {
         KeyAction::None
     }
 
+    fn handle_secrets_key(&mut self, key: KeyEvent) -> KeyAction {
+        match key.code {
+            KeyCode::Esc => {
+                self.secrets_view = None;
+                self.mode = Mode::Browse;
+                self.status.clear();
+            }
+            KeyCode::Enter => self.start_reveal_selected_secret(),
+            KeyCode::Down | KeyCode::Char('j') => self.move_secret_selection(1),
+            KeyCode::Up | KeyCode::Char('k') => self.move_secret_selection(-1),
+            KeyCode::Home => {
+                if let Some(view) = &mut self.secrets_view {
+                    view.selected = 0;
+                }
+            }
+            KeyCode::End => {
+                if let Some(view) = &mut self.secrets_view {
+                    view.selected = view.fields.len().saturating_sub(1);
+                }
+            }
+            KeyCode::Char('h') => {
+                if let Some(view) = &mut self.secrets_view {
+                    view.revealed = None;
+                }
+            }
+            _ => {}
+        }
+        KeyAction::None
+    }
+
+    fn handle_reveal_secret_key(&mut self, key: KeyEvent) -> Result<KeyAction> {
+        let Some(prompt) = &mut self.reveal_prompt else {
+            self.mode = Mode::Secrets;
+            return Ok(KeyAction::None);
+        };
+        match key.code {
+            KeyCode::Esc => {
+                prompt.password.zeroize();
+                self.reveal_prompt = None;
+                self.mode = Mode::Secrets;
+                self.status = "reveal cancelled".to_string();
+            }
+            KeyCode::Enter => self.reveal_prompt_secret()?,
+            KeyCode::Backspace => {
+                prompt.password.pop();
+            }
+            KeyCode::Char(value) => prompt.password.push(value),
+            _ => {}
+        }
+        Ok(KeyAction::None)
+    }
+
     fn handle_delete_key(&mut self, key: KeyEvent) -> Result<KeyAction> {
         match key.code {
             KeyCode::Char('y') | KeyCode::Enter => self.confirm_delete_selected_host()?,
@@ -464,6 +534,11 @@ impl App {
     fn reload(&mut self) -> Result<()> {
         self.vault = load_vault(&self.vault_path)?;
         self.local_config = load_local_config(&self.local_config_path)?;
+        self.secrets_store = if self.secrets_path.exists() {
+            Some(load_secrets(&self.secrets_path)?)
+        } else {
+            None
+        };
         self.prune_collapsed_folders();
         self.rebuild_tree();
         self.selected = self.selected.min(self.tree.len().saturating_sub(1));
@@ -479,6 +554,8 @@ impl App {
         self.identity_editor = None;
         self.jump_editor = None;
         self.forward_editor = None;
+        self.secrets_view = None;
+        self.reveal_prompt = None;
         self.status = "vault reloaded".to_string();
         Ok(())
     }
@@ -496,6 +573,114 @@ impl App {
         self.action_selected = self.action_selected.min(action_count.saturating_sub(1));
         self.mode = Mode::ActionPalette;
         self.status.clear();
+    }
+
+    fn start_secrets_view(&mut self) {
+        let Some(host) = self.selected_host() else {
+            self.status = "select a host to view secrets".to_string();
+            return;
+        };
+        let Some(set_key) = host.secrets.clone() else {
+            self.status = "selected host has no secrets set".to_string();
+            return;
+        };
+        let Some(store) = &self.secrets_store else {
+            self.status = format!("secrets store not found: {}", self.secrets_path.display());
+            return;
+        };
+        let Ok(set) = store.set(&set_key) else {
+            self.status = format!("secrets set not found: {set_key}");
+            return;
+        };
+        self.secrets_view = Some(SecretsView {
+            host_id: host.id,
+            host_path: self.vault.host_path(host),
+            set_key: set_key.clone(),
+            set_label: set.label.clone(),
+            fields: set.fields.keys().cloned().collect(),
+            selected: 0,
+            revealed: None,
+        });
+        self.mode = Mode::Secrets;
+        self.status.clear();
+    }
+
+    fn start_reveal_selected_secret(&mut self) {
+        let Some(view) = &self.secrets_view else {
+            self.mode = Mode::Browse;
+            return;
+        };
+        let Some(field) = view.selected_field() else {
+            self.status = "no secret field selected".to_string();
+            return;
+        };
+        if !self.selected_secret_field_is_encrypted() {
+            self.status = "selected field is not encrypted".to_string();
+            return;
+        }
+        self.reveal_prompt = Some(RevealPrompt {
+            field,
+            password: Zeroizing::new(String::new()),
+        });
+        self.mode = Mode::RevealSecret;
+        self.status.clear();
+    }
+
+    fn reveal_prompt_secret(&mut self) -> Result<()> {
+        let Some(mut prompt) = self.reveal_prompt.take() else {
+            self.mode = Mode::Secrets;
+            return Ok(());
+        };
+        let Some(view) = &mut self.secrets_view else {
+            prompt.password.zeroize();
+            self.mode = Mode::Browse;
+            return Ok(());
+        };
+        let Some(store) = &self.secrets_store else {
+            prompt.password.zeroize();
+            self.mode = Mode::Secrets;
+            self.status = "secrets store not loaded".to_string();
+            return Ok(());
+        };
+        match store
+            .unlock(&prompt.password)
+            .and_then(|key| store.reveal(&key, &view.set_key, &prompt.field))
+        {
+            Ok(plaintext) => {
+                view.revealed = Some(RevealedSecret {
+                    field: prompt.field,
+                    plaintext,
+                });
+                self.mode = Mode::Secrets;
+                self.status = "secret revealed".to_string();
+            }
+            Err(error) => {
+                self.mode = Mode::Secrets;
+                self.status = format!("reveal failed: {error}");
+            }
+        }
+        prompt.password.zeroize();
+        Ok(())
+    }
+
+    fn move_secret_selection(&mut self, delta: isize) {
+        if let Some(view) = &mut self.secrets_view {
+            view.selected = move_index(view.selected, view.fields.len(), delta);
+        }
+    }
+
+    fn selected_secret_field_is_encrypted(&self) -> bool {
+        let Some((set_key, field)) = self.secrets_view.as_ref().and_then(|view| {
+            view.selected_field()
+                .map(|field| (view.set_key.as_str(), field))
+        }) else {
+            return false;
+        };
+        self.secrets_store
+            .as_ref()
+            .and_then(|store| store.set(set_key).ok())
+            .and_then(|set| set.fields.get(&field))
+            .is_some_and(|field| matches!(field, SecretField::Secret(_)))
     }
 
     fn start_edit_selected_item(&mut self) {
@@ -599,6 +784,7 @@ impl App {
             port: Some(source.port),
             username: source.username,
             identity_fingerprint: source.identity_fingerprint,
+            secrets: source.secrets,
             jump_chain: source.jump_chain,
             ssh_options: source.ssh_options,
             forwards: source.forwards,
@@ -1127,6 +1313,8 @@ impl App {
             Mode::EditIdentity => self.identity_editor.as_ref().map(|editor| editor.host_id),
             Mode::EditJumps => self.jump_editor.as_ref().map(|editor| editor.host_id),
             Mode::EditForwards => self.forward_editor.as_ref().map(|editor| editor.host_id),
+            Mode::Secrets => self.secrets_view.as_ref().map(|view| view.host_id),
+            Mode::RevealSecret => self.secrets_view.as_ref().map(|view| view.host_id),
             Mode::ActionPalette => self.tree.get(self.selected).and_then(|item| item.host_id()),
             Mode::EditFolder => None,
             Mode::PickMoveFolder => None,
@@ -1408,9 +1596,70 @@ pub(crate) enum Mode {
     EditIdentity,
     EditJumps,
     EditForwards,
+    Secrets,
+    RevealSecret,
     ActionPalette,
     ConfirmDelete,
     PickMoveFolder,
+}
+
+pub(crate) struct SecretsView {
+    pub(crate) host_id: Uuid,
+    pub(crate) host_path: String,
+    pub(crate) set_key: String,
+    pub(crate) set_label: Option<String>,
+    pub(crate) fields: Vec<String>,
+    pub(crate) selected: usize,
+    pub(crate) revealed: Option<RevealedSecret>,
+}
+
+impl fmt::Debug for SecretsView {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SecretsView")
+            .field("host_id", &self.host_id)
+            .field("host_path", &self.host_path)
+            .field("set_key", &self.set_key)
+            .field("set_label", &self.set_label)
+            .field("fields", &self.fields)
+            .field("selected", &self.selected)
+            .field("revealed", &self.revealed.as_ref().map(|_| "<redacted>"))
+            .finish()
+    }
+}
+
+impl SecretsView {
+    pub(crate) fn selected_field(&self) -> Option<String> {
+        self.fields.get(self.selected).cloned()
+    }
+}
+
+pub(crate) struct RevealedSecret {
+    pub(crate) field: String,
+    pub(crate) plaintext: SecretPlaintext,
+}
+
+impl fmt::Debug for RevealedSecret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RevealedSecret")
+            .field("field", &self.field)
+            .field("plaintext", &"<redacted>")
+            .finish()
+    }
+}
+
+#[derive(PartialEq, Eq)]
+pub(crate) struct RevealPrompt {
+    pub(crate) field: String,
+    pub(crate) password: Zeroizing<String>,
+}
+
+impl fmt::Debug for RevealPrompt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RevealPrompt")
+            .field("field", &self.field)
+            .field("password", &"<redacted>")
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1651,6 +1900,7 @@ mod tests {
                 port: None,
                 username: Some("deploy".to_string()),
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),
@@ -1666,6 +1916,7 @@ mod tests {
                 port: None,
                 username: None,
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),
@@ -1676,8 +1927,10 @@ mod tests {
         App::new(
             PathBuf::from("vault.json"),
             PathBuf::from(".stassh-local.json"),
+            PathBuf::from("secrets.json"),
             vault,
             LocalConfig::default(),
+            None,
             false,
         )
     }
@@ -1791,6 +2044,95 @@ mod tests {
     }
 
     #[test]
+    fn secrets_view_reveals_one_selected_secret() {
+        let mut app = sample_app();
+        select_label(&mut app, "web");
+        let host_id = app.selected_host_id().unwrap();
+        app.vault
+            .update_host(
+                HostSelector::Id(host_id),
+                UpdateHost {
+                    secrets: Some(Some("site-a".to_string())),
+                    ..UpdateHost::default()
+                },
+            )
+            .unwrap();
+        let (mut store, secrets_key) = SecretsStore::create("master").unwrap();
+        store
+            .create_set("site-a".to_string(), Some("Site A".to_string()))
+            .unwrap();
+        store
+            .set_plain("site-a", "admin_user".to_string(), "root".to_string())
+            .unwrap();
+        store
+            .set_secret(
+                &secrets_key,
+                "site-a",
+                "password".to_string(),
+                "secret-value",
+            )
+            .unwrap();
+        app.secrets_store = Some(store);
+
+        let action = app.handle_key(key(KeyCode::Char('s'))).unwrap();
+        assert_eq!(action, KeyAction::None);
+        assert_eq!(app.mode, Mode::Secrets);
+        assert!(app.secrets_view.as_ref().unwrap().revealed.is_none());
+
+        app.handle_key(key(KeyCode::End)).unwrap();
+        app.handle_key(key(KeyCode::Enter)).unwrap();
+        assert_eq!(app.mode, Mode::RevealSecret);
+        for ch in "master".chars() {
+            app.handle_key(key(KeyCode::Char(ch))).unwrap();
+        }
+        app.handle_key(key(KeyCode::Enter)).unwrap();
+
+        let view = app.secrets_view.as_ref().unwrap();
+        assert_eq!(app.mode, Mode::Secrets);
+        assert_eq!(
+            view.revealed
+                .as_ref()
+                .unwrap()
+                .plaintext
+                .expose_str()
+                .unwrap(),
+            "secret-value"
+        );
+    }
+
+    #[test]
+    fn secrets_debug_output_redacts_prompt_and_revealed_values() {
+        let (mut store, secrets_key) = SecretsStore::create("master").unwrap();
+        store.create_set("site".to_string(), None).unwrap();
+        store
+            .set_secret(&secrets_key, "site", "password".to_string(), "secret-value")
+            .unwrap();
+        let plaintext = store.reveal(&secrets_key, "site", "password").unwrap();
+        let prompt = RevealPrompt {
+            field: "password".to_string(),
+            password: Zeroizing::new("master".to_string()),
+        };
+        let revealed = RevealedSecret {
+            field: "password".to_string(),
+            plaintext,
+        };
+        let view = SecretsView {
+            host_id: Uuid::new_v4(),
+            host_path: "/web".to_string(),
+            set_key: "site".to_string(),
+            set_label: None,
+            fields: vec!["password".to_string()],
+            selected: 0,
+            revealed: Some(revealed),
+        };
+        let debug = format!("{prompt:?}\n{view:?}");
+
+        assert!(!debug.contains("master"));
+        assert!(!debug.contains("secret-value"));
+        assert!(debug.contains("<redacted>"));
+    }
+
+    #[test]
     fn enter_in_action_palette_returns_run_action() {
         let mut app = sample_app();
         let host_id = app.vault.search_hosts("web")[0].id;
@@ -1896,6 +2238,7 @@ mod tests {
                 port: None,
                 username: None,
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),
@@ -1942,6 +2285,7 @@ mod tests {
                 port: None,
                 username: None,
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),
@@ -2197,6 +2541,7 @@ mod tests {
                 port: None,
                 username: None,
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),

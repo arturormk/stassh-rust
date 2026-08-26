@@ -1,8 +1,10 @@
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+
+use tempfile::NamedTempFile;
 
 use crate::model::{StasshError, Vault};
 
@@ -41,6 +43,13 @@ pub fn load_vault(path: impl AsRef<Path>) -> Result<Vault, StorageError> {
 
 pub fn save_vault(path: impl AsRef<Path>, vault: &Vault) -> Result<(), StorageError> {
     vault.validate()?;
+    save_json_private(path, vault)
+}
+
+pub fn save_json_private<T: serde::Serialize>(
+    path: impl AsRef<Path>,
+    value: &T,
+) -> Result<(), StorageError> {
     let path = path.as_ref();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|source| StorageError::CreateDir {
@@ -49,20 +58,36 @@ pub fn save_vault(path: impl AsRef<Path>, vault: &Vault) -> Result<(), StorageEr
         })?;
     }
 
-    let bytes = serde_json::to_vec_pretty(vault).map_err(StorageError::Encode)?;
-    let tmp_path = temporary_path(path);
-    fs::write(&tmp_path, bytes).map_err(|source| StorageError::Write {
-        path: tmp_path.clone(),
+    let bytes = serde_json::to_vec_pretty(value).map_err(StorageError::Encode)?;
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut tmp = NamedTempFile::new_in(parent).map_err(|source| StorageError::Write {
+        path: parent.to_path_buf(),
         source,
     })?;
-    set_private_file_permissions(&tmp_path).map_err(|source| StorageError::Write {
-        path: tmp_path.clone(),
+    set_private_file_permissions(tmp.path()).map_err(|source| StorageError::Write {
+        path: tmp.path().to_path_buf(),
         source,
     })?;
-    fs::rename(&tmp_path, path).map_err(|source| StorageError::Write {
+    tmp.write_all(&bytes)
+        .map_err(|source| StorageError::Write {
+            path: tmp.path().to_path_buf(),
+            source,
+        })?;
+    tmp.flush().map_err(|source| StorageError::Write {
+        path: tmp.path().to_path_buf(),
+        source,
+    })?;
+    tmp.as_file()
+        .sync_all()
+        .map_err(|source| StorageError::Write {
+            path: tmp.path().to_path_buf(),
+            source,
+        })?;
+    tmp.persist(path).map_err(|error| StorageError::Write {
         path: path.to_path_buf(),
-        source,
+        source: error.error,
     })?;
+    sync_parent_directory(parent)?;
     Ok(())
 }
 
@@ -76,15 +101,21 @@ fn set_private_file_permissions(_path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn temporary_path(path: &Path) -> PathBuf {
-    let mut tmp = path.to_path_buf();
-    let extension = path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .map(|extension| format!("{extension}.tmp"))
-        .unwrap_or_else(|| "tmp".to_string());
-    tmp.set_extension(extension);
-    tmp
+#[cfg(unix)]
+fn sync_parent_directory(path: &Path) -> Result<(), StorageError> {
+    let directory = fs::File::open(path).map_err(|source| StorageError::Write {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    directory.sync_all().map_err(|source| StorageError::Write {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+#[cfg(not(unix))]
+fn sync_parent_directory(_path: &Path) -> Result<(), StorageError> {
+    Ok(())
 }
 
 #[cfg(test)]
@@ -108,6 +139,7 @@ mod tests {
                 port: None,
                 username: Some("deploy".to_string()),
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),

@@ -20,7 +20,8 @@ use ratatui::Terminal;
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::layout::Rect;
 use stassh_core::{
-    ensure_home_stassh_permissions, load_local_config, load_vault, local_config_path, vault_path,
+    SecretsStore, ensure_home_stassh_permissions, load_local_config, load_secrets, load_vault,
+    local_config_path, secrets_path, vault_path,
 };
 
 #[derive(Debug, Parser)]
@@ -33,26 +34,41 @@ struct Cli {
 
     #[arg(long, global = true, value_name = "PATH")]
     local_config: Option<PathBuf>,
+
+    #[arg(long = "secrets-file", global = true, value_name = "PATH")]
+    secrets_file: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let vault_path = vault_path(cli.vault).context("failed to determine vault path")?;
     let local_config_path = local_config_path(cli.local_config, &vault_path);
-    ensure_home_stassh_permissions(&[&vault_path, &local_config_path])
+    let secrets_path = secrets_path(cli.secrets_file, &vault_path);
+    ensure_home_stassh_permissions(&[&vault_path, &local_config_path, &secrets_path])
         .with_context(|| "unsafe ~/.ssh/stassh permissions")?;
     let _ =
         tmux::cleanup_stale_temp_configs(&tmux::default_temp_config_dir(), tmux::STALE_CONFIG_AGE);
     let vault = load_vault(&vault_path)?;
     let local_config = load_local_config(&local_config_path)?;
+    let secrets_store = load_optional_secrets(&secrets_path)?;
     let app = App::new(
         vault_path,
         local_config_path,
+        secrets_path,
         vault,
         local_config,
+        secrets_store,
         tmux::is_inside_tmux(),
     );
     run_tui(app)
+}
+
+fn load_optional_secrets(path: &PathBuf) -> Result<Option<SecretsStore>> {
+    if path.exists() {
+        Ok(Some(load_secrets(path)?))
+    } else {
+        Ok(None)
+    }
 }
 
 fn run_tui(mut app: App) -> Result<()> {

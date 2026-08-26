@@ -83,6 +83,16 @@ impl Vault {
             if !folder_ids.contains(&host.folder_id) {
                 return Err(StasshError::FolderNotFound(host.folder_id.to_string()));
             }
+            if host
+                .secrets
+                .as_ref()
+                .is_some_and(|secrets| secrets.trim().is_empty())
+            {
+                return Err(StasshError::InvalidValue {
+                    field: "host.secrets",
+                    reason: "must not be empty".to_string(),
+                });
+            }
             for jump_id in &host.jump_chain {
                 if !self.hosts.iter().any(|jump| jump.id == *jump_id) {
                     return Err(StasshError::HostNotFound(jump_id.to_string()));
@@ -206,6 +216,7 @@ impl Vault {
             port: add.port.unwrap_or(22),
             username: add.username,
             identity_fingerprint: add.identity_fingerprint,
+            secrets: add.secrets,
             jump_chain: add.jump_chain,
             ssh_options: add.ssh_options,
             forwards: add.forwards,
@@ -237,6 +248,17 @@ impl Vault {
         {
             return Err(StasshError::InvalidValue {
                 field: "host.hostname",
+                reason: "must not be empty".to_string(),
+            });
+        }
+        if update
+            .secrets
+            .as_ref()
+            .and_then(|secrets| secrets.as_ref())
+            .is_some_and(|secrets| secrets.trim().is_empty())
+        {
+            return Err(StasshError::InvalidValue {
+                field: "host.secrets",
                 reason: "must not be empty".to_string(),
             });
         }
@@ -277,6 +299,9 @@ impl Vault {
         }
         if let Some(identity_fingerprint) = update.identity_fingerprint {
             host.identity_fingerprint = identity_fingerprint;
+        }
+        if let Some(secrets) = update.secrets {
+            host.secrets = secrets;
         }
         if let Some(jump_chain) = update.jump_chain {
             host.jump_chain = jump_chain;
@@ -415,6 +440,7 @@ impl Vault {
             port: host.port,
             username: host.username.clone(),
             identity_fingerprint: host.identity_fingerprint.clone(),
+            secrets: host.secrets.clone(),
             jump_chain,
             ssh_options: host.ssh_options.clone(),
             forwards: host.forwards.clone(),
@@ -612,6 +638,8 @@ pub struct Host {
     pub username: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity_fingerprint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secrets: Option<String>,
     pub jump_chain: Vec<Uuid>,
     pub ssh_options: Vec<String>,
     #[serde(default)]
@@ -637,6 +665,7 @@ pub struct AddHost {
     pub port: Option<u16>,
     pub username: Option<String>,
     pub identity_fingerprint: Option<String>,
+    pub secrets: Option<String>,
     pub jump_chain: Vec<Uuid>,
     pub ssh_options: Vec<String>,
     pub forwards: Vec<ForwardDefinition>,
@@ -652,6 +681,7 @@ pub struct UpdateHost {
     pub port: Option<u16>,
     pub username: Option<Option<String>>,
     pub identity_fingerprint: Option<Option<String>>,
+    pub secrets: Option<Option<String>>,
     pub jump_chain: Option<Vec<Uuid>>,
     pub ssh_options: Option<Vec<String>>,
     pub forwards: Option<Vec<ForwardDefinition>>,
@@ -758,6 +788,7 @@ pub struct ResolvedHost {
     pub port: u16,
     pub username: Option<String>,
     pub identity_fingerprint: Option<String>,
+    pub secrets: Option<String>,
     pub jump_chain: Vec<ResolvedJump>,
     pub ssh_options: Vec<String>,
     pub forwards: Vec<ForwardDefinition>,
@@ -922,6 +953,7 @@ mod tests {
             port: 22,
             username: None,
             identity_fingerprint: Some("SHA256:abc".to_string()),
+            secrets: None,
             jump_chain: Vec::new(),
             ssh_options: Vec::new(),
             forwards: Vec::new(),
@@ -1005,6 +1037,7 @@ mod tests {
                 port: None,
                 username: None,
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),
@@ -1041,6 +1074,7 @@ mod tests {
                 port: Some(22),
                 username: Some("admin".to_string()),
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),
@@ -1073,6 +1107,7 @@ mod tests {
                 port: None,
                 username: Some("postgres".to_string()),
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),
@@ -1102,6 +1137,7 @@ mod tests {
                 port: None,
                 username: None,
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),
@@ -1140,6 +1176,7 @@ mod tests {
                 port: None,
                 username: None,
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),
@@ -1155,6 +1192,7 @@ mod tests {
                 port: None,
                 username: None,
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: vec![jump.id],
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),
@@ -1186,6 +1224,7 @@ mod tests {
                 port: None,
                 username: None,
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),
@@ -1237,6 +1276,7 @@ mod tests {
             port: None,
             username: None,
             identity_fingerprint: None,
+            secrets: None,
             jump_chain: vec![missing],
             ssh_options: Vec::new(),
             forwards: Vec::new(),
@@ -1258,6 +1298,7 @@ mod tests {
                 port: None,
                 username: None,
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),
@@ -1273,6 +1314,7 @@ mod tests {
                 port: None,
                 username: None,
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),
@@ -1299,6 +1341,7 @@ mod tests {
                 port: Some(2222),
                 username: Some("deploy".to_string()),
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: vec!["ServerAliveInterval 30".to_string()],
                 forwards: Vec::new(),
@@ -1314,6 +1357,7 @@ mod tests {
                 port: Some(2222),
                 username: Some("deploy".to_string()),
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: vec!["ServerAliveInterval 30".to_string()],
                 forwards: Vec::new(),
@@ -1329,6 +1373,7 @@ mod tests {
                 port: Some(2222),
                 username: Some("deploy".to_string()),
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: vec!["ForwardAgent yes".to_string()],
                 forwards: Vec::new(),
@@ -1365,6 +1410,7 @@ mod tests {
                 port: None,
                 username: None,
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),
@@ -1380,6 +1426,7 @@ mod tests {
                 port: None,
                 username: None,
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),
@@ -1395,6 +1442,7 @@ mod tests {
                 port: None,
                 username: None,
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),
@@ -1424,6 +1472,7 @@ mod tests {
                 port: None,
                 username: None,
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),
@@ -1439,6 +1488,7 @@ mod tests {
                 port: None,
                 username: None,
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),
@@ -1454,6 +1504,7 @@ mod tests {
                 port: None,
                 username: None,
                 identity_fingerprint: None,
+                secrets: None,
                 jump_chain: vec![second.id],
                 ssh_options: Vec::new(),
                 forwards: Vec::new(),

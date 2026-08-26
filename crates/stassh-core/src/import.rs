@@ -129,6 +129,7 @@ fn import_openssh_config_inner(
                 port: effective_block.port,
                 username: effective_block.user,
                 identity_fingerprint: identity,
+                secrets: None,
                 jump_chain: Vec::new(),
                 ssh_options,
                 forwards: effective_block.forwards,

@@ -6,6 +6,7 @@ pub mod import;
 pub mod local;
 pub mod model;
 pub mod openssh;
+pub mod secrets;
 pub mod storage;
 
 pub use action::{
@@ -14,8 +15,8 @@ pub use action::{
 };
 pub use export::export_openssh_config;
 pub use frontend::{
-    ensure_home_stassh_permissions, local_config_path, prepare_openssh_command, selector,
-    vault_path,
+    ensure_home_stassh_permissions, local_config_path, prepare_openssh_command, secrets_path,
+    selector, vault_path,
 };
 pub use identity::{
     DerivedIdentity, IdentityDeriveError, IdentityFileResolver, OpenSshIdentityResolver,
@@ -37,4 +38,8 @@ pub use model::{
     ResolvedHost, StasshError, UpdateHost, Vault,
 };
 pub use openssh::{OpenSshCommand, OpenSshConfig, TempOpenSshConfig};
+pub use secrets::{
+    EncryptedSecret, SecretField, SecretPlaintext, SecretRecordKind, SecretSet, SecretsCrypto,
+    SecretsError, SecretsKey, SecretsStore, load_secrets, save_secrets,
+};
 pub use storage::{load_vault, save_vault};

@@ -275,6 +275,7 @@ mod tests {
             port: 2222,
             username: Some("root".to_string()),
             identity_fingerprint: None,
+            secrets: None,
             jump_chain: vec![ResolvedJump {
                 id: Uuid::new_v4(),
                 display_name: "bastion".to_string(),
@@ -324,6 +325,7 @@ mod tests {
             port: 22,
             username: None,
             identity_fingerprint: None,
+            secrets: None,
             jump_chain: Vec::new(),
             ssh_options: Vec::new(),
             forwards: vec![
@@ -362,6 +364,7 @@ mod tests {
             port: 22,
             username: None,
             identity_fingerprint: None,
+            secrets: None,
             jump_chain: Vec::new(),
             ssh_options: Vec::new(),
             forwards: Vec::new(),

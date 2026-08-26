@@ -17,3 +17,4 @@ libc.workspace = true
 ratatui.workspace = true
 stassh-core = { path = "../../crates/stassh-core" }
 uuid.workspace = true
+zeroize.workspace = true

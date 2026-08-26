@@ -56,6 +56,28 @@ pub fn local_config_path(path: Option<PathBuf>, vault_path: &Path) -> PathBuf {
     }
 }
 
+pub fn secrets_path(path: Option<PathBuf>, vault_path: &Path) -> PathBuf {
+    if let Some(path) = path {
+        return path;
+    }
+    if let Ok(path) = env::var("STASSH_SECRETS") {
+        return PathBuf::from(path);
+    }
+    let parent = vault_path.parent().unwrap_or_else(|| Path::new("."));
+    let adjacent_path = parent.join("secrets.json");
+    let Some(home_path) = home_stassh_path().map(|path| path.join("secrets.json")) else {
+        return adjacent_path;
+    };
+    if home_stassh_path()
+        .map(|path| path.join("vault.json") == vault_path)
+        .unwrap_or(false)
+    {
+        home_path
+    } else {
+        adjacent_path
+    }
+}
+
 pub fn vault_adjacent_local_config_path(vault_path: &Path) -> PathBuf {
     let parent = vault_path.parent().unwrap_or_else(|| Path::new("."));
     parent.join(".stassh-local.json")

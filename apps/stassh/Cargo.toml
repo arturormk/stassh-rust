@@ -13,6 +13,8 @@ path = "src/main.rs"
 anyhow.workspace = true
 clap.workspace = true
 libc.workspace = true
+rpassword.workspace = true
 serde_json.workspace = true
 stassh-core = { path = "../../crates/stassh-core" }
 uuid.workspace = true
+zeroize.workspace = true

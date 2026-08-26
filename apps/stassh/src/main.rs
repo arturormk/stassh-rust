@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
-use std::{env, fs};
+use std::{env, fs, io::Write};
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -21,9 +21,10 @@ use stassh_core::{
     ensure_home_stassh_permissions, export_openssh_config, import_openssh_config_with_identities,
     load_local_config, load_vault, local_config_path, parse_prepare_env, prepare_openssh_command,
     read_openssh_config_with_includes, resolve_action_local_prepare, resolve_action_plan,
-    save_local_config, save_vault, selector, vault_path,
+    save_local_config, save_secrets, save_vault, secrets_path, selector, vault_path,
 };
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 #[derive(Debug, Parser)]
 #[command(name = "stassh")]
@@ -35,6 +36,9 @@ struct Cli {
 
     #[arg(long, global = true, value_name = "PATH")]
     local_config: Option<PathBuf>,
+
+    #[arg(long = "secrets-file", global = true, value_name = "PATH")]
+    secrets_file: Option<PathBuf>,
 
     #[arg(long, global = true, value_enum, default_value_t = OutputFormat::Text)]
     output: OutputFormat,
@@ -79,6 +83,7 @@ fn host_json(host: &stassh_core::Host, path: &str) -> Value {
         "port": host.port,
         "username": host.username,
         "identity_fingerprint": host.identity_fingerprint,
+        "secrets": host.secrets,
         "jump_chain": host.jump_chain,
         "ssh_options": host.ssh_options,
         "forwards": host.forwards,
@@ -104,6 +109,7 @@ fn resolved_host_json(
         "port": host.port,
         "username": host.username,
         "identity_fingerprint": host.identity_fingerprint,
+        "secrets": host.secrets,
         "identity_mapping": identity_mapping,
         "jump_chain": host.jump_chain.iter().map(resolved_jump_json).collect::<Vec<_>>(),
         "ssh_options": host.ssh_options,
@@ -648,6 +654,8 @@ enum Commands {
     Connect(HostSelectorArgs),
     Action(ActionArgs),
     #[command(subcommand)]
+    Secrets(SecretsCommands),
+    #[command(subcommand)]
     Identity(IdentityCommands),
     #[command(subcommand)]
     Import(ImportCommands),
@@ -678,6 +686,11 @@ enum HostCommands {
     Add(AddHostArgs),
     Edit(EditHostArgs),
     Delete(HostSelectorArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum SecretsCommands {
+    Manage,
 }
 
 #[derive(Debug, Subcommand)]
@@ -795,6 +808,9 @@ struct AddHostArgs {
     #[arg(long)]
     identity_file: Option<PathBuf>,
 
+    #[arg(long)]
+    secrets: Option<String>,
+
     #[arg(long = "tag")]
     tags: Vec<String>,
 
@@ -844,6 +860,12 @@ struct EditHostArgs {
 
     #[arg(long)]
     clear_identity: bool,
+
+    #[arg(long)]
+    secrets: Option<String>,
+
+    #[arg(long)]
+    clear_secrets: bool,
 
     #[arg(long = "jump")]
     jumps: Vec<String>,
@@ -936,7 +958,8 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     let vault_path = vault_path(cli.vault)?;
     let local_config_path = local_config_path(cli.local_config, &vault_path);
-    ensure_home_stassh_permissions(&[&vault_path, &local_config_path])
+    let secrets_path = secrets_path(cli.secrets_file, &vault_path);
+    ensure_home_stassh_permissions(&[&vault_path, &local_config_path, &secrets_path])
         .with_context(|| "unsafe ~/.ssh/stassh permissions")?;
     let output = cli.output;
 
@@ -1160,6 +1183,7 @@ fn main() -> Result<()> {
                     port: args.port,
                     username: args.user,
                     identity_fingerprint,
+                    secrets: args.secrets,
                     jump_chain,
                     ssh_options: args.ssh_options,
                     forwards,
@@ -1215,6 +1239,12 @@ fn main() -> Result<()> {
                     clearable_value(args.user, args.clear_user, "--user", "--clear-user")?;
                 let notes =
                     clearable_value(args.notes, args.clear_notes, "--notes", "--clear-notes")?;
+                let secrets = clearable_value(
+                    args.secrets,
+                    args.clear_secrets,
+                    "--secrets",
+                    "--clear-secrets",
+                )?;
                 let ssh_options = clearable_vec(
                     args.ssh_options,
                     args.clear_ssh_options,
@@ -1232,6 +1262,7 @@ fn main() -> Result<()> {
                         port: args.port,
                         username,
                         identity_fingerprint,
+                        secrets,
                         jump_chain,
                         ssh_options,
                         forwards,
@@ -1411,6 +1442,9 @@ fn main() -> Result<()> {
                     "local_exit_code": result.local_exit.and_then(|status| status.code()),
                 }))?;
             }
+        }
+        Commands::Secrets(SecretsCommands::Manage) => {
+            run_secrets_manage(&vault_path, &secrets_path)?;
         }
         Commands::Identity(IdentityCommands::List) => {
             let local_path = local_config_path.clone();
@@ -1664,12 +1698,285 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn run_secrets_manage(vault_path: &std::path::Path, secrets_path: &std::path::Path) -> Result<()> {
+    let (mut store, key) = if secrets_path.exists() {
+        let store = stassh_core::load_secrets(secrets_path)?;
+        let password = Zeroizing::new(rpassword::prompt_password("Master password: ")?);
+        let key = store.unlock(password.as_str())?;
+        println!("Secrets store unlocked.");
+        (store, key)
+    } else {
+        println!("No secrets store exists at:");
+        println!("    {}", secrets_path.display());
+        print!("Create it? [Y/n] ");
+        io::stdout().flush()?;
+        let mut answer = String::new();
+        io::stdin().read_line(&mut answer)?;
+        if matches!(answer.trim(), "n" | "N" | "no" | "NO" | "No") {
+            return Ok(());
+        }
+        let password = prompt_new_password("New master password")?;
+        let (store, key) = stassh_core::SecretsStore::create(password.as_str())?;
+        save_secrets(secrets_path, &store)?;
+        println!("Secrets store created.");
+        (store, key)
+    };
+
+    let mut current_set: Option<String> = None;
+    loop {
+        print!(
+            "stassh-secrets{}> ",
+            current_set
+                .as_deref()
+                .map(|set| format!(":{set}"))
+                .unwrap_or_default()
+        );
+        io::stdout().flush()?;
+
+        let mut line = String::new();
+        if io::stdin().read_line(&mut line)? == 0 {
+            println!("Secrets locked.");
+            return Ok(());
+        }
+        let args = match parse_repl_args(&line) {
+            Ok(args) => args,
+            Err(error) => {
+                eprintln!("error: {error}");
+                continue;
+            }
+        };
+        if args.is_empty() {
+            continue;
+        }
+
+        if matches!(args[0].as_str(), "exit" | "quit") {
+            println!("Secrets locked.");
+            return Ok(());
+        }
+
+        if let Err(error) = run_secrets_repl_command(
+            &args,
+            &mut store,
+            &key,
+            &mut current_set,
+            vault_path,
+            secrets_path,
+        ) {
+            eprintln!("error: {error}");
+        }
+    }
+}
+
+fn run_secrets_repl_command(
+    args: &[String],
+    store: &mut stassh_core::SecretsStore,
+    key: &stassh_core::SecretsKey,
+    current_set: &mut Option<String>,
+    vault_path: &std::path::Path,
+    secrets_path: &std::path::Path,
+) -> Result<()> {
+    match args[0].as_str() {
+        "help" => print_secrets_help(),
+        "sets" => {
+            for (key, set) in &store.sets {
+                println!("{}\t{}", key, set.label.as_deref().unwrap_or(""));
+            }
+        }
+        "create" => {
+            let set = required_arg(args, 1, "create <set>")?.to_string();
+            let label = args.get(2).cloned();
+            store.create_set(set.clone(), label)?;
+            save_secrets(secrets_path, store)?;
+            *current_set = Some(set.clone());
+            println!("Created {set}.");
+        }
+        "delete-set" => {
+            let set = required_arg(args, 1, "delete-set <set>")?;
+            store.delete_set(set)?;
+            save_secrets(secrets_path, store)?;
+            if current_set.as_deref() == Some(set) {
+                *current_set = None;
+            }
+            println!("Deleted {set}.");
+        }
+        "rename-set" => {
+            let old = required_arg(args, 1, "rename-set <old> <new>")?.to_string();
+            let new = required_arg(args, 2, "rename-set <old> <new>")?.to_string();
+            store.rename_set(&old, new.clone())?;
+            save_secrets(secrets_path, store)?;
+            if let Err(error) = rewrite_host_secret_refs(vault_path, &old, &new) {
+                bail!(
+                    "renamed secrets set in {}, but failed to update host references in {}: {error}. Hosts may still reference {old}; update them with `stassh host edit <host> --secrets {new}` or rename the set back.",
+                    secrets_path.display(),
+                    vault_path.display()
+                );
+            }
+            if current_set.as_deref() == Some(&old) {
+                *current_set = Some(new.clone());
+            }
+            println!("Renamed {old} to {new}.");
+        }
+        "use" => {
+            let set = required_arg(args, 1, "use <set>")?;
+            store.set(set)?;
+            *current_set = Some(set.to_string());
+            println!("Using: {set}");
+        }
+        "list" => {
+            let set = active_set(current_set)?;
+            print_secret_fields(store.set(set)?);
+        }
+        "get" => {
+            let set = active_set(current_set)?;
+            let field = required_arg(args, 1, "get <field>")?;
+            match store.set(set)?.fields.get(field) {
+                Some(stassh_core::SecretField::Plain(value)) => println!("{value}"),
+                Some(stassh_core::SecretField::Secret(_)) => println!("[secret]"),
+                None => bail!("secret field not found: {set}.{field}"),
+            }
+        }
+        "set" => {
+            let set = active_set(current_set)?;
+            let field = required_arg(args, 1, "set <field> <value>")?.to_string();
+            let value = args.get(2..).unwrap_or(&[]).join(" ");
+            if value.is_empty() {
+                bail!("set <field> requires a value");
+            }
+            store.set_plain(set, field.clone(), value)?;
+            save_secrets(secrets_path, store)?;
+            println!("Updated {field}.");
+        }
+        "secret" => {
+            let set = active_set(current_set)?;
+            let field = required_arg(args, 1, "secret <field>")?.to_string();
+            if args.len() > 2 {
+                bail!("secret values must be entered at the prompt, not as command arguments");
+            }
+            let value = prompt_new_password("New secret value")?;
+            store.set_secret(key, set, field.clone(), value.as_str())?;
+            save_secrets(secrets_path, store)?;
+            println!("Updated {field}.");
+        }
+        "reveal" => {
+            let set = active_set(current_set)?;
+            let field = required_arg(args, 1, "reveal <field>")?;
+            let plaintext = store.reveal(key, set, field)?;
+            println!("{}", plaintext.expose_str()?);
+        }
+        "delete" => {
+            let set = active_set(current_set)?;
+            let field = required_arg(args, 1, "delete <field>")?;
+            store.delete_field(set, field)?;
+            save_secrets(secrets_path, store)?;
+            println!("Deleted {field}.");
+        }
+        command => bail!("unknown secrets command: {command}"),
+    }
+    Ok(())
+}
+
+fn prompt_new_password(label: &str) -> Result<Zeroizing<String>> {
+    let value = Zeroizing::new(rpassword::prompt_password(format!("{label}: "))?);
+    let repeat = Zeroizing::new(rpassword::prompt_password(format!("Repeat {label}: "))?);
+    if value.as_str() != repeat.as_str() {
+        bail!("values did not match");
+    }
+    if value.is_empty() {
+        bail!("value must not be empty");
+    }
+    Ok(value)
+}
+
+fn print_secrets_help() {
+    println!("sets");
+    println!("create <set> [label]");
+    println!("delete-set <set>");
+    println!("rename-set <old> <new>");
+    println!("use <set>");
+    println!("list");
+    println!("get <field>");
+    println!("set <field> <value>");
+    println!("secret <field>");
+    println!("reveal <field>");
+    println!("delete <field>");
+    println!("exit");
+}
+
+fn print_secret_fields(set: &stassh_core::SecretSet) {
+    for (field, value) in &set.fields {
+        match value {
+            stassh_core::SecretField::Plain(value) => println!("{field}\t{value}"),
+            stassh_core::SecretField::Secret(_) => println!("{field}\t[secret]"),
+        }
+    }
+}
+
+fn rewrite_host_secret_refs(vault_path: &std::path::Path, old: &str, new: &str) -> Result<()> {
+    let mut vault = load_vault(vault_path)?;
+    let mut changed = false;
+    for host in &mut vault.hosts {
+        if host.secrets.as_deref() == Some(old) {
+            host.secrets = Some(new.to_string());
+            changed = true;
+        }
+    }
+    if changed {
+        save_vault(vault_path, &vault)?;
+    }
+    Ok(())
+}
+
+fn active_set(current_set: &Option<String>) -> Result<&str> {
+    current_set
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("no active set; use `use <set>` first"))
+}
+
+fn required_arg<'a>(args: &'a [String], index: usize, usage: &str) -> Result<&'a str> {
+    args.get(index)
+        .map(String::as_str)
+        .ok_or_else(|| anyhow::anyhow!("usage: {usage}"))
+}
+
+fn parse_repl_args(line: &str) -> Result<Vec<String>> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut chars = line.trim().chars();
+    let mut quote = None;
+    while let Some(ch) = chars.next() {
+        match (quote, ch) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), '\\') => {
+                if let Some(next) = chars.next() {
+                    current.push(next);
+                }
+            }
+            (Some(_), c) => current.push(c),
+            (None, '"' | '\'') => quote = Some(ch),
+            (None, c) if c.is_whitespace() => {
+                if !current.is_empty() {
+                    args.push(std::mem::take(&mut current));
+                }
+            }
+            (None, c) => current.push(c),
+        }
+    }
+    if quote.is_some() {
+        bail!("unterminated quote");
+    }
+    if !current.is_empty() {
+        args.push(current);
+    }
+    Ok(args)
+}
+
 fn print_resolved(host: &ResolvedHost, local_config: Option<&stassh_core::LocalConfig>) {
     println!("ID: {}", host.id);
     println!("Path: {}", host.path);
     println!("HostName: {}", host.hostname);
     println!("Port: {}", host.port);
     println!("User: {}", host.username.as_deref().unwrap_or("(default)"));
+    println!("Secrets: {}", host.secrets.as_deref().unwrap_or("(none)"));
     println!("Tags: {}", display_list(&host.tags));
     println!("Notes: {}", host.notes.as_deref().unwrap_or(""));
     println!(

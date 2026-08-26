@@ -54,6 +54,8 @@ fn draw_tree(frame: &mut Frame<'_>, app: &App, area: Rect) {
         | Mode::EditIdentity
         | Mode::EditJumps
         | Mode::EditForwards
+        | Mode::Secrets
+        | Mode::RevealSecret
         | Mode::ActionPalette
         | Mode::ConfirmDelete => "Hosts",
         Mode::PickMoveFolder => "Move To Folder",
@@ -67,6 +69,8 @@ fn draw_tree(frame: &mut Frame<'_>, app: &App, area: Rect) {
         | Mode::EditIdentity
         | Mode::EditJumps
         | Mode::EditForwards
+        | Mode::Secrets
+        | Mode::RevealSecret
         | Mode::ActionPalette
         | Mode::ConfirmDelete => {
             let all_items = app
@@ -253,6 +257,16 @@ fn draw_details(frame: &mut Frame<'_>, app: &App, area: Rect) {
         return;
     }
 
+    if app.mode == Mode::RevealSecret {
+        draw_reveal_prompt(frame, app, area);
+        return;
+    }
+
+    if app.mode == Mode::Secrets {
+        draw_secrets_view(frame, app, area);
+        return;
+    }
+
     if app.mode == Mode::PickMoveFolder {
         draw_move_folder_picker(frame, app, area);
         return;
@@ -274,6 +288,138 @@ fn draw_details(frame: &mut Frame<'_>, app: &App, area: Rect) {
     frame.render_widget(
         Paragraph::new(lines)
             .block(Block::default().title("Details").borders(Borders::ALL))
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+fn draw_reveal_prompt(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let Some(prompt) = &app.reveal_prompt else {
+        frame.render_widget(
+            Paragraph::new("No reveal in progress").block(
+                Block::default()
+                    .title("Reveal Secret")
+                    .borders(Borders::ALL),
+            ),
+            area,
+        );
+        return;
+    };
+    let masked = "*".repeat(prompt.password.chars().count());
+    let lines = vec![
+        Line::from(Span::styled(
+            "Reveal Secret",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        field("Field", &prompt.field),
+        field("Master", &masked),
+        Line::from(""),
+        Line::from("Press Enter to reveal. Press Esc to cancel."),
+    ];
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title("Reveal Secret")
+                    .borders(Borders::ALL),
+            )
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+fn draw_secrets_view(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let Some(view) = &app.secrets_view else {
+        frame.render_widget(
+            Paragraph::new("No secrets view")
+                .block(Block::default().title("Secrets").borders(Borders::ALL)),
+            area,
+        );
+        return;
+    };
+    let Some(store) = &app.secrets_store else {
+        frame.render_widget(
+            Paragraph::new(format!(
+                "Secrets store not found: {}",
+                app.secrets_path.display()
+            ))
+            .block(Block::default().title("Secrets").borders(Borders::ALL)),
+            area,
+        );
+        return;
+    };
+    let set = match store.set(&view.set_key) {
+        Ok(set) => set,
+        Err(error) => {
+            frame.render_widget(
+                Paragraph::new(format!("{error}"))
+                    .block(Block::default().title("Secrets").borders(Borders::ALL)),
+                area,
+            );
+            return;
+        }
+    };
+    let visible_rows = area.height.saturating_sub(8) as usize;
+    let offset = selected_scroll_offset(view.selected, visible_rows.max(1));
+    let title = if view.fields.len() > visible_rows && visible_rows > 0 {
+        format!(
+            "Secrets {}-{} of {}",
+            offset + 1,
+            (offset + visible_rows).min(view.fields.len()),
+            view.fields.len()
+        )
+    } else {
+        "Secrets".to_string()
+    };
+    let mut lines = vec![
+        field("Host", &view.host_path),
+        field("Set", &view.set_key),
+        field("Label", view.set_label.as_deref().unwrap_or("")),
+        Line::from(""),
+    ];
+    if view.fields.is_empty() {
+        lines.push(Line::from("No fields in this secrets set."));
+    } else {
+        for (index, field_name) in view
+            .fields
+            .iter()
+            .enumerate()
+            .skip(offset)
+            .take(visible_rows.max(1))
+        {
+            let selected = index == view.selected;
+            let style = if selected {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            let marker = if selected { "> " } else { "  " };
+            let value = match set.fields.get(field_name) {
+                Some(stassh_core::SecretField::Plain(value)) => value.as_str(),
+                Some(stassh_core::SecretField::Secret(_)) => view
+                    .revealed
+                    .as_ref()
+                    .filter(|revealed| revealed.field == *field_name)
+                    .and_then(|revealed| revealed.plaintext.expose_str().ok())
+                    .unwrap_or("[secret]"),
+                None => "(missing)",
+            };
+            lines.push(Line::from(vec![
+                Span::styled(marker, style),
+                Span::styled(format!("{:>16}: ", field_name), style),
+                Span::styled(value, style),
+            ]));
+        }
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from("Enter reveal | h hide | Esc close"));
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(Block::default().title(title).borders(Borders::ALL))
             .wrap(Wrap { trim: false }),
         area,
     );
@@ -348,12 +494,7 @@ fn draw_action_palette(frame: &mut Frame<'_>, app: &App, area: Rect) {
     } else {
         let visible_rows = areas[0].height.saturating_sub(3) as usize;
         let offset = selected_scroll_offset(app.action_selected, visible_rows);
-        for (index, action) in actions
-            .iter()
-            .enumerate()
-            .skip(offset)
-            .take(visible_rows)
-        {
+        for (index, action) in actions.iter().enumerate().skip(offset).take(visible_rows) {
             let marker = if index == app.action_selected {
                 "> "
             } else {
@@ -374,10 +515,7 @@ fn draw_action_palette(frame: &mut Frame<'_>, app: &App, area: Rect) {
         }
     }
 
-    frame.render_widget(
-        Paragraph::new(lines).wrap(Wrap { trim: false }),
-        areas[0],
-    );
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), areas[0]);
 
     if detail_height > 0
         && let Some(action) = actions.get(app.action_selected)
@@ -787,6 +925,7 @@ fn host_detail_lines(app: &App, host: &Host) -> Vec<Line<'static>> {
         field("HostName", &resolved.hostname),
         field("Port", &resolved.port.to_string()),
         field("User", resolved.username.as_deref().unwrap_or("(default)")),
+        field("Secrets", resolved.secrets.as_deref().unwrap_or("(none)")),
         field("Tags", &display_list(&resolved.tags)),
         field("Notes", resolved.notes.as_deref().unwrap_or("")),
     ];
@@ -941,6 +1080,8 @@ fn logical_status_lines(app: &App) -> Vec<String> {
         Mode::EditIdentity => "identity",
         Mode::EditJumps => "jumps",
         Mode::EditForwards => "forwards",
+        Mode::Secrets => "secrets",
+        Mode::RevealSecret => "reveal",
         Mode::ActionPalette => "actions",
         Mode::ConfirmDelete => "delete",
         Mode::PickMoveFolder => "move",
@@ -963,11 +1104,13 @@ fn logical_status_lines(app: &App) -> Vec<String> {
         Mode::EditForwards => {
             "Ctrl+S save | Esc cancel | a local | A remote | d dynamic | x delete | Tab fields"
         }
+        Mode::Secrets => "Enter reveal | h hide | Esc close | j/k choose field | Home/End",
+        Mode::RevealSecret => "Enter reveal | Esc cancel | type master password",
         Mode::ActionPalette => "Enter run action | Esc cancel | j/k choose action | Home/End",
         Mode::ConfirmDelete => "y/Enter delete | n/Esc cancel",
         Mode::PickMoveFolder => "Enter move | Esc cancel | j/k choose folder | Home/End",
         _ => {
-            "q quit | / search | Space select | u clear | m move | n new host | C copy host | f new folder | e edit | i identity | J jumps | F forwards | a actions | x delete | Enter connect | t tmux window | d diagnostics | r reload | Home/End/PgDn siblings | PgUp parent"
+            "q quit | / search | Space select | u clear | m move | n new host | C copy host | f new folder | e edit | i identity | J jumps | F forwards | a actions | s secrets | x delete | Enter connect | t tmux window | d diagnostics | r reload | Home/End/PgDn siblings | PgUp parent"
         }
     };
     let mut lines = vec![
@@ -978,6 +1121,7 @@ fn logical_status_lines(app: &App) -> Vec<String> {
         ),
         format!("vault:{}", app.vault_path.display()),
         format!("local:{}", app.local_config_path.display()),
+        format!("secrets:{}", app.secrets_path.display()),
     ];
     if !app.status.is_empty() {
         lines.push(app.status.clone());
@@ -1128,8 +1272,10 @@ mod tests {
         App::new(
             std::path::PathBuf::from("/tmp/vault.json"),
             std::path::PathBuf::from("/tmp/local.json"),
+            std::path::PathBuf::from("/tmp/secrets.json"),
             stassh_core::Vault::new(),
             stassh_core::LocalConfig::new(),
+            None,
             false,
         )
     }

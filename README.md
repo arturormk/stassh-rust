@@ -34,6 +34,9 @@ Implemented now:
 - OpenSSH command and config generation
 - `stassh connect` using the system `ssh`
 - `stassh action` for running and diagnosing reusable actions
+- optional encrypted `secrets.json` storage for host-associated fallback secrets
+- host-to-secrets-set references with shared sets across multiple hosts
+- `stassh secrets manage` for interactive secrets-store administration
 - temporary OpenSSH config execution for jumps, forwards, and SSH options
 - import of a useful subset of existing OpenSSH config files, including nested `Include` files
 - export to OpenSSH config format
@@ -113,15 +116,19 @@ stassh --output json export openssh -
 
 - `vault.json`: portable host, folder, jump, forwarding, action, tag, note, and identity fingerprint records
 - local config: machine-local identity fingerprint to private-key path mappings and capability names to executable paths
+- `secrets.json`: optional encrypted host-associated secrets sets for fallback operational reference
 
 The local config does not contain private key material, but it can reveal local
 usernames and filesystem paths, so it should still be treated as private.
+`secrets.json` encrypts fields that are explicitly stored as secrets, but set
+names, field names, labels, and plaintext metadata fields remain visible.
 
 By default, new setups use:
 
 ```text
 ~/.ssh/stassh/vault.json
 ~/.ssh/stassh/local.json
+~/.ssh/stassh/secrets.json
 ```
 
 This makes syncing a personal SSH workspace between machines as simple as copying
@@ -134,6 +141,7 @@ default home configuration directory:
 ~/.ssh/stassh/            700
 ~/.ssh/stassh/vault.json  600
 ~/.ssh/stassh/local.json  600
+~/.ssh/stassh/secrets.json  600
 ```
 
 These checks apply only to paths under `~/.ssh/stassh/`. Project-local and
@@ -158,7 +166,7 @@ Local config path resolution order:
 Choose explicit paths with:
 
 ```bash
-cargo run -p stassh -- --vault /path/to/vault.json --local-config /path/to/local.json vault status
+cargo run -p stassh -- --vault /path/to/vault.json --local-config /path/to/local.json --secrets-file /path/to/secrets.json vault status
 ```
 
 Or set environment variables:
@@ -166,6 +174,7 @@ Or set environment variables:
 ```bash
 export STASSH_VAULT=/path/to/vault.json
 export STASSH_LOCAL_CONFIG=/path/to/local.json
+export STASSH_SECRETS=/path/to/secrets.json
 ```
 
 Local `vault.json` files are ignored by Git because vaults may contain infrastructure details.
@@ -177,6 +186,26 @@ Older project-local machine mappings are still read from:
 ```
 
 That file is also ignored by Git.
+
+Secrets path resolution order:
+
+1. `--secrets-file /path/to/secrets.json`
+2. `STASSH_SECRETS=/path/to/secrets.json`
+3. `~/.ssh/stassh/secrets.json` when the selected vault is `~/.ssh/stassh/vault.json`
+4. `secrets.json` beside the selected vault
+
+Manage the optional secrets store with:
+
+```bash
+stassh secrets manage
+```
+
+Link a host to a reusable secrets set with:
+
+```bash
+stassh host edit web --secrets customer-site
+stassh host edit web --clear-secrets
+```
 
 ## Terminal UI
 
@@ -225,6 +254,7 @@ Current keys:
 - `J`: edit the selected host's jump chain
 - `F`: edit the selected host's port forwards
 - `a`: open the selected host's action palette
+- `s`: open the selected host's linked secrets set when one exists
 - `x` / `Delete`: delete the selected host or empty folder after confirmation
 - `Enter`: connect to the selected host, or expand/collapse the selected folder
 - `t`: open the selected host in a new tmux window, or byobu tab, when running inside tmux/byobu
