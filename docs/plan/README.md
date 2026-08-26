@@ -17,14 +17,14 @@ Executable names:
 ```text
 stassh      CLI
 stassh-tui  terminal UI
-stassh-GUI  desktop GUI
+stassh-gui  desktop GUI
 ```
 
-Crate names should use the `stassh-` prefix. A likely starting point is:
+Crate names should use the `stassh-` prefix. Current workspace/package names:
 
 ```text
 stassh-core
-stassh-cli
+stassh
 stassh-tui
 stassh-gui
 ```

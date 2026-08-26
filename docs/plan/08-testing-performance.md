@@ -43,10 +43,14 @@ Cover user workflows:
 - CLI JSON output for stable commands
 - TUI browse/search/connect/return
 - GUI search/connect/terminal tab behavior
+- GUI terminal layout tabs, drag/drop composition, broadcast input, and internal full-screen behavior
 - diagnostics views with redaction
 - action execution
 
-The GUI should be checked with screenshots or equivalent visual tests where layout regressions are likely.
+The GUI should be checked with screenshots or equivalent visual tests where
+layout regressions are likely, especially around terminal grids, main-pane mode,
+full-screen terminal panes, tab reordering, and host-tree open-session
+indicators.
 
 ## Performance Metrics
 

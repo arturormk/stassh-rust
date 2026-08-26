@@ -4,7 +4,7 @@
 
 `stassh-rust` is an early Rust implementation of a portable, offline-first SSH workspace with reusable actions for workflows such as VNC over SSH.
 
-The current codebase provides a useful MVP: a `stassh` CLI, a `stassh-tui` terminal UI, and a reusable `stassh-core` crate. It stores host inventory and common actions in a local JSON vault, maps machine-local identities and tool capabilities in a local config file, and launches the system OpenSSH client.
+The current codebase provides a useful MVP: a `stassh` CLI, a `stassh-tui` terminal UI, an early `stassh-gui` desktop app, and a reusable `stassh-core` crate. It stores host inventory and common actions in a local JSON vault, maps machine-local identities and tool capabilities in a local config file, and launches the system OpenSSH client.
 
 ![stassh-tui browsing a demo SSH vault with folders, hosts, jumps, identity mappings, forwards, and actions](examples/github-screenshot/stassh-tui-screenshot.jpg)
 
@@ -14,7 +14,10 @@ OpenSSH connections without giving up plain-file portability.
 
 The longer-term project direction is documented in `docs/BLUEPRINT.md` and `docs/plan/`.
 
-The CLI and TUI exist today. `stassh-gui` is future development.
+The CLI and TUI are the most mature frontends today. `stassh-gui` now exists as
+an MVP desktop frontend with host browsing, editing, search, diagnostics, and
+embedded OpenSSH terminal sessions. Some peripheral UI areas, especially the
+Details tab and right-side Inspector, still need redesign and polish.
 
 ## Current Status
 
@@ -46,13 +49,20 @@ Implemented now:
 - optional structured JSON output for CLI commands
 - `stassh-tui` for browsing, searching, inspecting, connecting, running actions, and basic vault editing
 - optional `stassh-tui` tmux/byobu window launch with `t` for multiple simultaneous SSH sessions
+- `stassh-gui` MVP with a Tauri desktop shell, host tree, search, details,
+  inspector/editor panel, embedded xterm.js terminal tabs, GUI-managed PTYs, and
+  OpenSSH-backed connections
+- GUI terminal layout tabs with equal-grid and main-pane modes, drag/drop
+  terminal-to-layout composition, layout-local broadcast input, internal
+  full-screen terminal panes, and host-tree open-session indicators
 
 Not implemented yet:
 
 - encrypted vaults
 - synchronization journals
 - automatic identity discovery by scanning `~/.ssh` or `ssh-agent`
-- `stassh-gui`
+- polished `stassh-gui` Details/Inspector redesign
+- GUI action running/editing surfaces
 - action editing commands and TUI action editors
 
 ## Build And Test
@@ -87,6 +97,22 @@ Run the TUI from source:
 ```bash
 cargo run -p stassh-tui -- --version
 cargo run -p stassh-tui
+```
+
+Run the GUI from source:
+
+```bash
+cd apps/stassh-gui
+npm install
+npm run tauri dev
+```
+
+From the repository root, the helper script can launch a development build and
+optionally use copied demo data:
+
+```bash
+./run-stassh-gui-dev.sh
+./run-stassh-gui-dev.sh --fixture
 ```
 
 ## Output Formats
@@ -424,6 +450,46 @@ cargo build -p stassh-tui
 A useful manual regression check is to connect to an unavailable host outside tmux
 and press `Ctrl+C` while SSH is blocked. The expected behavior is that SSH exits
 and `stassh-tui` restores the TUI instead of returning to the shell prompt.
+
+## Desktop GUI
+
+`stassh-gui` is an MVP desktop frontend under `apps/stassh-gui`. It uses Tauri
+with a React/xterm.js frontend and a Rust PTY/session backend. It reuses
+`stassh-core` for vault loading, host search, diagnostics, OpenSSH command
+generation, and vault edits.
+
+Current GUI capabilities:
+
+- browse the host/folder tree and search hosts
+- inspect selected host or folder details, including generated OpenSSH command
+  preview and diagnostics
+- create, edit, copy, delete, and move hosts
+- create, rename, move, and delete folders where allowed
+- assign or clear a host identity from local mappings
+- edit jump chains and local/remote/dynamic forwards
+- double-click or press Connect to open an embedded terminal session using the
+  system `ssh`
+- keep multiple SSH sessions open as individual terminal tabs
+- create independent `Layout {n}` tabs that show existing terminal sessions as
+  equal grids or a main pane plus secondary grid
+- drag a terminal tab onto a layout tab to add it, or drag one terminal tab onto
+  another terminal tab to create a new layout with both
+- use layout-local Broadcast mode to send terminal input from one pane to all
+  panes in that layout
+- make the selected terminal pane internally full-screen inside the app window
+- see host-tree indicators for how many SSH sessions are open for each host
+
+The GUI currently stores session tabs, layouts, and terminal state only in
+frontend runtime state. It does not add GUI-only fields to `vault.json`, and it
+does not persist layouts across restart yet.
+
+Known GUI polish work:
+
+- redesign the Details tab and right-side Inspector for better scanning and
+  editing flow
+- add stronger action-running and action-editing surfaces
+- add close-session confirmation for still-running sessions
+- broaden manual and screenshot regression coverage for terminal layouts
 
 ## Duplicate Host Reports
 

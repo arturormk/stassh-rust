@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "apps/stassh",
+    "apps/stassh-gui/src-tauri",
     "apps/stassh-tui",
     "crates/stassh-core",
 ]

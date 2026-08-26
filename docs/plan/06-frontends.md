@@ -2,7 +2,7 @@
 
 ## Shared Semantics
 
-`stassh`, `stassh-tui`, and `stassh-GUI` are first-class frontends over the same vault and core logic.
+`stassh`, `stassh-tui`, and `stassh-gui` are first-class frontends over the same vault and core logic.
 
 All frontends should understand the same synchronized records and resolved host behavior. They may differ in workflow depth and visual richness, but they must not create incompatible data.
 
@@ -48,34 +48,54 @@ require tmux.
 
 The GUI should be modest, dense, fast, keyboard-friendly, and visually restrained.
 
-Initial features:
+Current MVP features:
 
 - host tree
-- fuzzy search
+- search
 - host editor
-- tabs or sessions
-- integrated PTY terminal
+- folder editor
+- diagnostics and generated OpenSSH preview
+- terminal tabs
+- independent terminal layout tabs
+- equal-grid and main-pane terminal layouts
+- layout-local broadcast input
+- internal full-screen terminal panes
+- open-session indicators in the host tree
+- integrated PTY terminal through xterm.js
 - connect via OpenSSH
-- diagnostics view
 
 Avoid decorative dashboards, large cards, splash screens, account-centric flows, animated backgrounds, and excessive empty space.
 
-The GUI likely uses Tauri, but the exact frontend framework should be chosen for maintainability, accessibility, keyboard handling, state management, and performance rather than fashion.
+The current GUI uses Tauri, React, xterm.js, and a Rust PTY backend. Any future
+framework changes should be justified by maintainability, accessibility,
+keyboard handling, state management, and performance rather than fashion.
+
+Near-term GUI polish:
+
+- redesign the Details tab and right-side Inspector
+- add richer action-running and action-editing surfaces
+- add stronger close-session confirmation behavior
+- add screenshot or equivalent visual regression checks for terminal layouts
 
 ## GUI Terminal Path
 
-The GUI needs a terminal emulator because a WebView is not a native terminal.
+The GUI uses a terminal emulator because a WebView is not a native terminal.
 
-Likely structure:
+Current structure:
 
 ```text
-terminal component
+terminal component / layout view
   <-> narrow streaming IPC bridge
   <-> Rust PTY management
   <-> system ssh
 ```
 
 Terminal bytes are high-volume data and must not flow through heavyweight global frontend state. Host tree data and terminal I/O should have separate paths.
+
+Terminal tabs and layout tabs are GUI runtime state. Layouts are views over
+existing terminal sessions, not separate SSH sessions, and they should remain
+outside the portable vault unless a future cross-frontend persistence model is
+designed.
 
 ## Keyboard And Actions
 

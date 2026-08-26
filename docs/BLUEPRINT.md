@@ -1541,13 +1541,15 @@ Application-level validation and locking should be used where needed.
 
 # 44. GUI
 
-The desktop GUI is expected to use a lightweight desktop stack, likely based on Tauri.
+The desktop GUI exists as an MVP under `apps/stassh-gui`. It uses Tauri with a
+React/xterm.js frontend and a Rust PTY/session backend.
 
-The precise frontend framework is not fixed.
+The precise frontend framework is still an implementation detail rather than a
+core contract.
 
 The GUI should remain visually modest and highly responsive.
 
-A possible layout:
+The current MVP layout follows this shape:
 
 ```text
 ┌──────────────────────┬────────────────────────────────────────┐
@@ -1569,6 +1571,15 @@ A possible layout:
 ```
 
 The actual design may differ substantially.
+
+Current GUI capabilities include host/folder browsing, search, basic vault
+editing, diagnostics, OpenSSH command previews, embedded terminal tabs, terminal
+layout tabs, equal-grid and main-pane terminal views, layout-local broadcast
+input, drag/drop layout composition, internal full-screen terminal panes, and
+host-tree indicators for open sessions.
+
+The next GUI polish area is the Details tab and right-side Inspector. Action
+running/editing and richer diagnostics surfaces also remain future work.
 
 ---
 
@@ -1599,9 +1610,9 @@ Once an SSH session is open, the application should mostly get out of the user's
 
 # 46. GUI Terminal
 
-The GUI will need a terminal emulator because a WebView is not a native terminal.
+The GUI uses a terminal emulator because a WebView is not a native terminal.
 
-A likely architecture is:
+Current architecture:
 
 ```text
 terminal component
@@ -1613,9 +1624,8 @@ Rust PTY management
 system ssh
 ```
 
-xterm.js is one reasonable candidate.
-
-A native PTY crate may be used where appropriate.
+xterm.js is used in the frontend. Rust owns PTY management and launches the
+system `ssh`.
 
 Exact library choice should be evaluated for portability, correctness, maintenance status, and performance.
 
@@ -2516,9 +2526,13 @@ A strong first usable milestone could include:
 ## GUI
 
 * browse host tree,
-* fuzzy search,
+* search,
 * edit hosts,
-* tabs,
+* terminal tabs,
+* terminal layout tabs,
+* equal-grid and main-pane terminal layouts,
+* layout-local broadcast input,
+* internal full-screen terminal panes,
 * integrated PTY terminal,
 * connect via OpenSSH.
 
@@ -3385,4 +3399,3 @@ It should make complex SSH environments easier to carry and navigate without tak
 Whenever implementation choices conflict with this blueprint, prefer the choice that better serves the actual user and the long-term project.
 
 This document is a starting map, not a contract.
-
