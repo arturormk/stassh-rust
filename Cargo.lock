@@ -3525,8 +3525,10 @@ dependencies = [
  "stassh-core",
  "tauri",
  "tauri-build",
+ "tempfile",
  "thiserror 2.0.20",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]

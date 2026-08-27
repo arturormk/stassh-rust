@@ -7,13 +7,14 @@ use std::thread;
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde::{Deserialize, Serialize};
 use stassh_core::{
-    AddFolder, AddHost, ForwardDefinition, HostSelector, LocalConfig, SecretsStore,
+    AddFolder, AddHost, ForwardDefinition, HostSelector, LocalConfig, SecretField, SecretsStore,
     TempOpenSshConfig, UpdateHost, Vault, ensure_home_stassh_permissions, load_local_config,
     load_secrets, load_vault, local_config_path, prepare_openssh_command, save_vault, secrets_path,
     vault_path,
 };
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
+use zeroize::Zeroize;
 
 fn main() {
     tauri::Builder::default()
@@ -36,6 +37,8 @@ fn main() {
             clear_identity,
             update_jumps,
             update_forwards,
+            host_secrets,
+            reveal_host_secret,
             preview_ssh_command,
             start_ssh_session,
             write_terminal,
@@ -151,6 +154,24 @@ struct JumpView {
 struct SshPreview {
     command: String,
     uses_temp_config: bool,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct HostSecretsView {
+    host_id: Uuid,
+    host_path: String,
+    set_key: String,
+    label: Option<String>,
+    fields: Vec<SecretFieldView>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct SecretFieldView {
+    name: String,
+    kind: &'static str,
+    plain_value: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -339,6 +360,79 @@ fn diagnostics(vault: &Vault, local_config: &LocalConfig) -> Vec<DiagnosticView>
         }
     }
     diagnostics
+}
+
+fn host_secrets_view(workspace: &Workspace, host_id: Uuid) -> Result<HostSecretsView, String> {
+    let host = workspace
+        .vault
+        .host(host_id)
+        .ok_or_else(|| format!("host not found: {host_id}"))?;
+    let set_key = host.secrets.clone().ok_or_else(|| {
+        format!(
+            "host has no secrets set: {}",
+            workspace.vault.host_path(host)
+        )
+    })?;
+    let store = workspace.secrets_store.as_ref().ok_or_else(|| {
+        format!(
+            "secrets store not found: {}",
+            workspace.secrets_path.display()
+        )
+    })?;
+    let set = store.set(&set_key).map_err(error_message)?;
+    let fields = set
+        .fields
+        .iter()
+        .map(|(name, field)| match field {
+            SecretField::Plain(value) => SecretFieldView {
+                name: name.clone(),
+                kind: "plain",
+                plain_value: Some(value.clone()),
+            },
+            SecretField::Secret(_) => SecretFieldView {
+                name: name.clone(),
+                kind: "secret",
+                plain_value: None,
+            },
+        })
+        .collect();
+    Ok(HostSecretsView {
+        host_id,
+        host_path: workspace.vault.host_path(host),
+        set_key,
+        label: set.label.clone(),
+        fields,
+    })
+}
+
+fn reveal_host_secret_value(
+    workspace: &Workspace,
+    host_id: Uuid,
+    field: &str,
+    master_password: &str,
+) -> Result<String, String> {
+    let host = workspace
+        .vault
+        .host(host_id)
+        .ok_or_else(|| format!("host not found: {host_id}"))?;
+    let set_key = host.secrets.as_deref().ok_or_else(|| {
+        format!(
+            "host has no secrets set: {}",
+            workspace.vault.host_path(host)
+        )
+    })?;
+    let store = workspace.secrets_store.as_ref().ok_or_else(|| {
+        format!(
+            "secrets store not found: {}",
+            workspace.secrets_path.display()
+        )
+    })?;
+    let key = store.unlock(master_password).map_err(error_message)?;
+    let plaintext = store.reveal(&key, set_key, field).map_err(error_message)?;
+    plaintext
+        .expose_str()
+        .map(str::to_string)
+        .map_err(error_message)
 }
 
 fn workspace_with_state<T>(
@@ -717,6 +811,25 @@ fn update_forwards(
 }
 
 #[tauri::command]
+fn host_secrets(host_id: Uuid, state: State<'_, AppState>) -> Result<HostSecretsView, String> {
+    workspace_with_state(&state, |workspace| host_secrets_view(workspace, host_id))
+}
+
+#[tauri::command]
+fn reveal_host_secret(
+    host_id: Uuid,
+    field: String,
+    mut master_password: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let result = workspace_with_state(&state, |workspace| {
+        reveal_host_secret_value(workspace, host_id, &field, &master_password)
+    });
+    master_password.zeroize();
+    result
+}
+
+#[tauri::command]
 fn preview_ssh_command(host_id: Uuid, state: State<'_, AppState>) -> Result<SshPreview, String> {
     workspace_with_state(&state, |workspace| {
         let resolved = workspace
@@ -876,4 +989,146 @@ fn empty_to_none(value: Option<String>) -> Option<String> {
 
 fn error_message(error: impl std::fmt::Display) -> String {
     error.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use stassh_core::save_secrets;
+
+    fn workspace_with_secrets() -> (Workspace, Uuid) {
+        let mut vault = Vault::new();
+        let host = vault
+            .add_host(AddHost {
+                folder_id: None,
+                display_name: "web".to_string(),
+                hostname: "web.example".to_string(),
+                port: Some(22),
+                username: None,
+                identity_fingerprint: None,
+                secrets: Some("web-prod".to_string()),
+                jump_chain: Vec::new(),
+                ssh_options: Vec::new(),
+                forwards: Vec::new(),
+                tags: Vec::new(),
+                notes: None,
+            })
+            .unwrap();
+        let (mut store, key) = SecretsStore::create("master").unwrap();
+        store
+            .create_set("web-prod".to_string(), Some("Production web".to_string()))
+            .unwrap();
+        store
+            .set_plain("web-prod", "user".to_string(), "deploy".to_string())
+            .unwrap();
+        store
+            .set_secret(&key, "web-prod", "password".to_string(), "s3cr3t")
+            .unwrap();
+
+        (
+            Workspace {
+                vault_path: "vault.json".into(),
+                local_config_path: "local.json".into(),
+                secrets_path: "secrets.json".into(),
+                vault,
+                local_config: LocalConfig::new(),
+                secrets_store: Some(store),
+            },
+            host.id,
+        )
+    }
+
+    #[test]
+    fn host_secrets_lists_plain_fields_without_secret_plaintext() {
+        let (workspace, host_id) = workspace_with_secrets();
+
+        let view = host_secrets_view(&workspace, host_id).unwrap();
+
+        assert_eq!(view.host_id, host_id);
+        assert_eq!(view.set_key, "web-prod");
+        assert_eq!(view.label.as_deref(), Some("Production web"));
+        assert_eq!(
+            view.fields,
+            vec![
+                SecretFieldView {
+                    name: "password".to_string(),
+                    kind: "secret",
+                    plain_value: None,
+                },
+                SecretFieldView {
+                    name: "user".to_string(),
+                    kind: "plain",
+                    plain_value: Some("deploy".to_string()),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn host_secrets_errors_when_store_is_missing() {
+        let (mut workspace, host_id) = workspace_with_secrets();
+        workspace.secrets_store = None;
+
+        let error = host_secrets_view(&workspace, host_id).unwrap_err();
+
+        assert!(error.contains("secrets store not found"));
+    }
+
+    #[test]
+    fn host_secrets_errors_when_set_is_missing() {
+        let (mut workspace, host_id) = workspace_with_secrets();
+        workspace.secrets_store = Some(SecretsStore::create("master").unwrap().0);
+
+        let error = host_secrets_view(&workspace, host_id).unwrap_err();
+
+        assert!(error.contains("secrets set not found"));
+    }
+
+    #[test]
+    fn reveal_host_secret_returns_plaintext_for_correct_password() {
+        let (workspace, host_id) = workspace_with_secrets();
+
+        let value = reveal_host_secret_value(&workspace, host_id, "password", "master").unwrap();
+
+        assert_eq!(value, "s3cr3t");
+    }
+
+    #[test]
+    fn reveal_host_secret_errors_for_wrong_password() {
+        let (workspace, host_id) = workspace_with_secrets();
+
+        let error = reveal_host_secret_value(&workspace, host_id, "password", "wrong").unwrap_err();
+
+        assert!(error.contains("wrong master password"));
+    }
+
+    #[test]
+    fn reveal_host_secret_errors_for_plain_field() {
+        let (workspace, host_id) = workspace_with_secrets();
+
+        let error = reveal_host_secret_value(&workspace, host_id, "user", "master").unwrap_err();
+
+        assert!(error.contains("field is not encrypted"));
+    }
+
+    #[test]
+    fn reveal_host_secret_errors_for_unknown_field() {
+        let (workspace, host_id) = workspace_with_secrets();
+
+        let error = reveal_host_secret_value(&workspace, host_id, "missing", "master").unwrap_err();
+
+        assert!(error.contains("secret field not found"));
+    }
+
+    #[test]
+    fn saved_secret_store_does_not_include_plaintext_secret() {
+        let (workspace, _) = workspace_with_secrets();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("secrets.json");
+        save_secrets(&path, workspace.secrets_store.as_ref().unwrap()).unwrap();
+
+        let saved = std::fs::read_to_string(path).unwrap();
+
+        assert!(!saved.contains("s3cr3t"));
+    }
 }

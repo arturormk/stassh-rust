@@ -7,11 +7,15 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import {
   CaseSensitive,
+  ArrowLeft,
   ChevronDown,
   ChevronRight,
   ChevronUp,
   Copy,
+  Eye,
+  EyeOff,
   Folder,
+  KeyRound,
   Maximize2,
   Minimize2,
   Monitor,
@@ -122,6 +126,21 @@ type HostDetails = {
   diagnostics: DiagnosticView[];
 };
 
+type SecretFieldView = {
+  name: string;
+  kind: "plain" | "secret";
+  plainValue: string | null;
+  revealedValue?: string;
+};
+
+type HostSecrets = {
+  hostId: Id;
+  hostPath: string;
+  setKey: string;
+  label: string | null;
+  fields: SecretFieldView[];
+};
+
 type Tab =
   | { type: "terminal"; id: Id; sessionId: Id; hostId: Id; title: string; status: string }
   | {
@@ -196,6 +215,9 @@ function App() {
   const [editingHostId, setEditingHostId] = useState<Id | null>(null);
   const [hostForm, setHostForm] = useState<HostForm | null>(null);
   const [folderForm, setFolderForm] = useState<FolderForm | null>(null);
+  const [secretsPane, setSecretsPane] = useState<HostSecrets | null>(null);
+  const [revealPrompt, setRevealPrompt] = useState<{ field: string; loading: boolean } | null>(null);
+  const [secretsLoading, setSecretsLoading] = useState(false);
   const [status, setStatus] = useState("Loading workspace");
   const [error, setError] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(defaultSidebarWidth);
@@ -244,6 +266,12 @@ function App() {
       .then(setDetails)
       .catch((err) => setStatus(String(err)));
   }, [workspace, inspectorHostId]);
+
+  useEffect(() => {
+    if (secretsPane && secretsPane.hostId !== inspectorHostId) {
+      closeSecretsPane();
+    }
+  }, [inspectorHostId, secretsPane?.hostId]);
 
   useEffect(() => {
     if (editorMode) {
@@ -338,6 +366,7 @@ function App() {
     try {
       const snapshot = await invoke<WorkspaceSnapshot>("reload_workspace");
       setWorkspace(snapshot);
+      closeSecretsPane();
       setStatus("Workspace reloaded");
     } catch (err) {
       setStatus(String(err));
@@ -373,6 +402,7 @@ function App() {
       setWorkspace(snapshot);
       setEditorMode(null);
       setEditingHostId(null);
+      closeSecretsPane();
       setStatus("Host saved");
     } catch (err) {
       setStatus(String(err));
@@ -602,6 +632,7 @@ function App() {
     try {
       const snapshot = await invoke<WorkspaceSnapshot>(command, args);
       setWorkspace(snapshot);
+      closeSecretsPane();
       setStatus(message);
     } catch (err) {
       setStatus(String(err));
@@ -625,6 +656,7 @@ function App() {
       notes: host?.notes ?? "",
     });
     setFolderForm(null);
+    closeSecretsPane();
     setEditorMode(mode);
     setEditingHostId(mode === "host" ? host?.id ?? null : null);
   }
@@ -636,6 +668,7 @@ function App() {
       name: mode === "new-folder" ? "" : folder?.name ?? "",
     });
     setHostForm(null);
+    closeSecretsPane();
     setEditorMode(mode);
     setEditingHostId(null);
   }
@@ -643,6 +676,75 @@ function App() {
   function cancelEditor() {
     setEditorMode(null);
     setEditingHostId(null);
+  }
+
+  async function openSecretsPane(host: HostView) {
+    if (!host.secrets) {
+      setStatus("Selected host has no secrets set");
+      return;
+    }
+    setSecretsLoading(true);
+    setRevealPrompt(null);
+    try {
+      const data = await invoke<HostSecrets>("host_secrets", { hostId: host.id });
+      setSecretsPane(data);
+      setInspectorCollapsed(false);
+      setStatus("Secrets loaded");
+    } catch (err) {
+      setSecretsPane(null);
+      setStatus(String(err));
+    } finally {
+      setSecretsLoading(false);
+    }
+  }
+
+  function closeSecretsPane() {
+    setSecretsPane(null);
+    setRevealPrompt(null);
+    setSecretsLoading(false);
+  }
+
+  async function revealSecret(field: string, masterPassword: string) {
+    if (!secretsPane) return;
+    setRevealPrompt({ field, loading: true });
+    try {
+      const plaintext = await invoke<string>("reveal_host_secret", {
+        hostId: secretsPane.hostId,
+        field,
+        masterPassword,
+      });
+      setSecretsPane((current) =>
+        current
+          ? {
+              ...current,
+              fields: current.fields.map((item) =>
+                item.name === field ? { ...item, revealedValue: plaintext } : item,
+              ),
+            }
+          : current,
+      );
+      setRevealPrompt(null);
+      setStatus("Secret revealed");
+    } catch (err) {
+      setRevealPrompt({ field, loading: false });
+      setStatus(String(err));
+    }
+  }
+
+  function hideSecret(field: string) {
+    setSecretsPane((current) =>
+      current
+        ? {
+            ...current,
+            fields: current.fields.map((item) => {
+              if (item.name !== field) return item;
+              const { revealedValue: _revealedValue, ...hidden } = item;
+              return hidden;
+            }),
+          }
+        : current,
+    );
+    if (revealPrompt?.field === field) setRevealPrompt(null);
   }
 
   function setInspectorCollapsedAndResize(collapsed: boolean) {
@@ -927,6 +1029,9 @@ function App() {
             mode={editorMode}
             workspace={workspace}
             target={inspectorTarget}
+            secretsPane={secretsPane}
+            revealPrompt={revealPrompt}
+            secretsLoading={secretsLoading}
             collapsed={inspectorCollapsed && !editorMode}
             hostForm={hostForm}
             setHostForm={setHostForm}
@@ -951,6 +1056,12 @@ function App() {
                 applySnapshot("delete_folder", { folderId: folder.id }, "Folder deleted");
               }
             }}
+            onOpenSecrets={openSecretsPane}
+            onCloseSecrets={closeSecretsPane}
+            onStartReveal={(field) => setRevealPrompt({ field, loading: false })}
+            onCancelReveal={() => setRevealPrompt(null)}
+            onRevealSecret={revealSecret}
+            onHideSecret={hideSecret}
           />
         </aside>
       )}
@@ -1202,6 +1313,9 @@ function Inspector(props: {
   mode: EditorMode;
   workspace: WorkspaceSnapshot;
   target: InspectorTarget;
+  secretsPane: HostSecrets | null;
+  revealPrompt: { field: string; loading: boolean } | null;
+  secretsLoading: boolean;
   collapsed: boolean;
   hostForm: HostForm | null;
   setHostForm: (form: HostForm | null) => void;
@@ -1218,6 +1332,12 @@ function Inspector(props: {
   onCopyHost: (host: HostView) => void;
   onDeleteHost: (host: HostView) => void;
   onDeleteFolder: (folder: FolderView) => void;
+  onOpenSecrets: (host: HostView) => void;
+  onCloseSecrets: () => void;
+  onStartReveal: (field: string) => void;
+  onCancelReveal: () => void;
+  onRevealSecret: (field: string, masterPassword: string) => void;
+  onHideSecret: (field: string) => void;
 }) {
   if (props.collapsed) {
     return (
@@ -1292,6 +1412,21 @@ function Inspector(props: {
   }
 
   if (props.target?.type === "host") {
+    if (props.secretsPane?.hostId === props.target.host.id) {
+      return (
+        <HostSecretsPane
+          data={props.secretsPane}
+          revealPrompt={props.revealPrompt}
+          loading={props.secretsLoading}
+          onCollapse={props.onCollapse}
+          onClose={props.onCloseSecrets}
+          onStartReveal={props.onStartReveal}
+          onCancelReveal={props.onCancelReveal}
+          onReveal={props.onRevealSecret}
+          onHide={props.onHideSecret}
+        />
+      );
+    }
     return (
       <HostInspectorDetails
         target={props.target}
@@ -1300,6 +1435,7 @@ function Inspector(props: {
         onEdit={props.onEditHost}
         onCopy={props.onCopyHost}
         onDelete={props.onDeleteHost}
+        onSecrets={props.onOpenSecrets}
       />
     );
   }
@@ -1357,6 +1493,7 @@ function HostInspectorDetails(props: {
   onEdit: (host: HostView) => void;
   onCopy: (host: HostView) => void;
   onDelete: (host: HostView) => void;
+  onSecrets: (host: HostView) => void;
 }) {
   const { host, details, terminal, source } = props.target;
   const subtitle =
@@ -1377,6 +1514,9 @@ function HostInspectorDetails(props: {
         </button>
         <button onClick={() => props.onCopy(host)}>
           <Copy size={16} /> Copy
+        </button>
+        <button onClick={() => props.onSecrets(host)} disabled={!host.secrets}>
+          <KeyRound size={16} /> Secrets
         </button>
         <button className="danger" onClick={() => props.onDelete(host)}>
           <Trash2 size={16} /> Delete
@@ -1413,6 +1553,114 @@ function HostInspectorDetails(props: {
       <section>
         <h3>Diagnostics</h3>
         <Diagnostics diagnostics={details?.diagnostics ?? []} />
+      </section>
+    </div>
+  );
+}
+
+function HostSecretsPane(props: {
+  data: HostSecrets;
+  revealPrompt: { field: string; loading: boolean } | null;
+  loading: boolean;
+  onCollapse: () => void;
+  onClose: () => void;
+  onStartReveal: (field: string) => void;
+  onCancelReveal: () => void;
+  onReveal: (field: string, masterPassword: string) => void;
+  onHide: (field: string) => void;
+}) {
+  const [password, setPassword] = useState("");
+
+  useEffect(() => {
+    setPassword("");
+  }, [props.revealPrompt?.field]);
+
+  function submitReveal(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const field = props.revealPrompt?.field;
+    if (!field || !password) return;
+    const masterPassword = password;
+    setPassword("");
+    props.onReveal(field, masterPassword);
+  }
+
+  return (
+    <div className="inspectorDetails secretsPane">
+      <InspectorHeader title="Secrets" subtitle={props.data.hostPath} onCollapse={props.onCollapse} />
+      <div className="inspectorActions">
+        <button onClick={props.onClose}>
+          <ArrowLeft size={16} /> Details
+        </button>
+      </div>
+      <DetailList>
+        <DetailRow label="Set" value={props.data.setKey} />
+        <DetailRow label="Label" value={props.data.label || "none"} />
+      </DetailList>
+      <section>
+        <h3>Fields</h3>
+        {props.loading ? (
+          <p>Loading secrets</p>
+        ) : props.data.fields.length ? (
+          <div className="secretFields">
+            {props.data.fields.map((field) => {
+              const isRevealed = Object.prototype.hasOwnProperty.call(field, "revealedValue");
+              const promptOpen = props.revealPrompt?.field === field.name;
+              return (
+                <div className="secretField" key={field.name}>
+                  <div className="secretFieldMain">
+                    <span className="secretFieldName">{field.name}</span>
+                    <span className="secretFieldValue">
+                      {field.kind === "plain" ? field.plainValue || "" : isRevealed ? field.revealedValue : "********"}
+                    </span>
+                  </div>
+                  {field.kind === "secret" && (
+                    <button
+                      className="iconOnlyButton"
+                      title={isRevealed ? "Hide secret" : "Reveal secret"}
+                      onClick={() => (isRevealed ? props.onHide(field.name) : props.onStartReveal(field.name))}
+                    >
+                      {isRevealed ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  )}
+                  {promptOpen && (
+                    <form className="secretRevealPrompt" onSubmit={submitReveal}>
+                      <input
+                        type="password"
+                        value={password}
+                        autoFocus
+                        placeholder="Master password"
+                        disabled={props.revealPrompt?.loading}
+                        onChange={(event) => setPassword(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            setPassword("");
+                            props.onCancelReveal();
+                          }
+                        }}
+                      />
+                      <button type="submit" disabled={!password || props.revealPrompt?.loading}>
+                        <Eye size={16} /> Reveal
+                      </button>
+                      <button
+                        type="button"
+                        disabled={props.revealPrompt?.loading}
+                        onClick={() => {
+                          setPassword("");
+                          props.onCancelReveal();
+                        }}
+                      >
+                        <X size={16} /> Cancel
+                      </button>
+                    </form>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p>No fields in this secrets set.</p>
+        )}
       </section>
     </div>
   );

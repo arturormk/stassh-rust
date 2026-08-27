@@ -641,6 +641,53 @@ code {
   color: #cfd7e2;
 }
 
+.secretFields {
+  display: grid;
+  gap: 8px;
+}
+
+.secretField {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  gap: 8px;
+  align-items: start;
+  border: 1px solid #2d333c;
+  border-radius: 6px;
+  background: #171b21;
+  padding: 8px;
+}
+
+.secretFieldMain {
+  min-width: 0;
+}
+
+.secretFieldName {
+  display: block;
+  margin-bottom: 4px;
+  color: #94a0ad;
+  font-size: 12px;
+}
+
+.secretFieldValue {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #e8edf3;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.secretRevealPrompt {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+}
+
+.secretRevealPrompt input {
+  min-width: 0;
+}
+
 .editor label {
   color: #aab5c2;
   font-size: 13px;
