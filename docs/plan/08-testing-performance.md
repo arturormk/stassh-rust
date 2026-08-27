@@ -42,9 +42,12 @@ Cover user workflows:
 - CLI list/search/show/connect
 - CLI JSON output for stable commands
 - TUI browse/search/connect/return
+- TUI simulation mode startup, scripted foreground sessions, and reload reset
+- TUI screenshot capture from `./run-stassh-tui-dev.sh --simulation`
 - GUI search/connect/terminal tab behavior
 - GUI terminal layout tabs, drag/drop composition, broadcast input, and internal full-screen behavior
 - GUI simulation mode startup, scripted terminal prompt/output, and screenshot-safe demo data
+- GUI screenshot capture from `./run-stassh-gui-dev.sh --simulation`
 - diagnostics views with redaction
 - action execution
 
@@ -53,6 +56,9 @@ layout regressions are likely, especially around terminal grids, main-pane mode,
 full-screen terminal panes, tab reordering, and host-tree open-session
 indicators. Use GUI simulation mode as the default screenshot data source so
 captures do not depend on private vaults, live SSH hosts, or local key material.
+The README images in `examples/github-screenshot/` should be refreshed from the
+same simulation helper commands whenever the visual baseline intentionally
+changes.
 
 ## Performance Metrics
 

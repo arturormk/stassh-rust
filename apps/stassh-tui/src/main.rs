@@ -9,7 +9,7 @@ mod tmux;
 mod ui;
 
 use anyhow::{Context, Result};
-use app::{App, KeyAction};
+use app::{App, KeyAction, StatusPageKey};
 use clap::Parser;
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event};
 use crossterm::execute;
@@ -20,8 +20,8 @@ use ratatui::Terminal;
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::layout::Rect;
 use stassh_core::{
-    SecretsStore, ensure_home_stassh_permissions, load_local_config, load_secrets, load_vault,
-    local_config_path, secrets_path, vault_path,
+    SecretsStore, demo_workspace, ensure_home_stassh_permissions, load_local_config, load_secrets,
+    load_vault, local_config_path, secrets_path, vault_path,
 };
 
 #[derive(Debug, Parser)]
@@ -37,29 +37,54 @@ struct Cli {
 
     #[arg(long = "secrets-file", global = true, value_name = "PATH")]
     secrets_file: Option<PathBuf>,
+
+    #[arg(long, global = true)]
+    simulation: bool,
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let vault_path = vault_path(cli.vault).context("failed to determine vault path")?;
-    let local_config_path = local_config_path(cli.local_config, &vault_path);
-    let secrets_path = secrets_path(cli.secrets_file, &vault_path);
-    ensure_home_stassh_permissions(&[&vault_path, &local_config_path, &secrets_path])
-        .with_context(|| "unsafe ~/.ssh/stassh permissions")?;
+    let status_page_key = if tmux::is_inside_byobu() {
+        StatusPageKey::CtrlG
+    } else {
+        StatusPageKey::F1
+    };
     let _ =
         tmux::cleanup_stale_temp_configs(&tmux::default_temp_config_dir(), tmux::STALE_CONFIG_AGE);
-    let vault = load_vault(&vault_path)?;
-    let local_config = load_local_config(&local_config_path)?;
-    let secrets_store = load_optional_secrets(&secrets_path)?;
-    let app = App::new(
-        vault_path,
-        local_config_path,
-        secrets_path,
-        vault,
-        local_config,
-        secrets_store,
-        tmux::is_inside_tmux(),
-    );
+    let app = if cli.simulation {
+        let workspace = demo_workspace()?;
+        App::new(
+            PathBuf::from("simulation://vault.json"),
+            PathBuf::from("simulation://local.json"),
+            PathBuf::from("simulation://secrets.json"),
+            workspace.vault,
+            workspace.local_config,
+            Some(workspace.secrets_store),
+            false,
+            true,
+            status_page_key,
+        )
+    } else {
+        let vault_path = vault_path(cli.vault).context("failed to determine vault path")?;
+        let local_config_path = local_config_path(cli.local_config, &vault_path);
+        let secrets_path = secrets_path(cli.secrets_file, &vault_path);
+        ensure_home_stassh_permissions(&[&vault_path, &local_config_path, &secrets_path])
+            .with_context(|| "unsafe ~/.ssh/stassh permissions")?;
+        let vault = load_vault(&vault_path)?;
+        let local_config = load_local_config(&local_config_path)?;
+        let secrets_store = load_optional_secrets(&secrets_path)?;
+        App::new(
+            vault_path,
+            local_config_path,
+            secrets_path,
+            vault,
+            local_config,
+            secrets_store,
+            tmux::is_inside_tmux(),
+            false,
+            status_page_key,
+        )
+    };
     run_tui(app)
 }
 

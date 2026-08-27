@@ -1,4 +1,4 @@
-use std::io;
+use std::io::{self, BufRead, Write};
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -14,8 +14,9 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::Backend;
 use stassh_core::{
-    ResolvedActionPlan, ResolvedLocalCommand, parse_prepare_env, prepare_openssh_command,
-    resolve_action_local_prepare, resolve_action_plan,
+    ResolvedActionPlan, ResolvedHost, ResolvedLocalCommand, SimulatedShell, parse_prepare_env,
+    prepare_openssh_command, resolve_action_local_prepare, resolve_action_plan,
+    simulated_remote_command_output,
 };
 use uuid::Uuid;
 
@@ -34,6 +35,10 @@ pub(crate) fn connect_selected<B: Backend + io::Write>(
     let resolved = app
         .vault
         .resolve_host(stassh_core::HostSelector::Id(host_id))?;
+    if app.simulation {
+        run_simulated_selected(terminal, app, &resolved, None)?;
+        return Ok(());
+    }
     let (command, _temp_config) =
         prepare_openssh_command(&resolved, &app.local_config).context("failed to prepare ssh")?;
 
@@ -65,6 +70,10 @@ pub(crate) fn connect_selected<B: Backend + io::Write>(
 }
 
 pub(crate) fn open_tmux_window(app: &mut App) -> Result<()> {
+    if app.simulation {
+        app.status = "tmux disabled in simulation mode".to_string();
+        return Ok(());
+    }
     if !tmux::is_inside_tmux() {
         app.status = "tmux unavailable: start stassh-tui inside tmux to use t".to_string();
         return Ok(());
@@ -111,6 +120,19 @@ pub(crate) fn run_selected_action<B: Backend + io::Write>(
         .find(|action| action.id == action_id)
         .cloned()
         .with_context(|| format!("action not found: {action_id}"))?;
+    if app.simulation {
+        let mut prelude = format!("running simulated action: {}\r\n", action.name);
+        if let Some(remote_command) = &action.remote_command {
+            prelude.push_str(&format!("remote command: {remote_command}\r\n"));
+            prelude.push_str(&simulated_remote_command_output(remote_command));
+        }
+        if action.local_launch.is_some() {
+            prelude.push_str("local launch skipped in simulation mode\r\n");
+        }
+        run_simulated_selected(terminal, app, &resolved, Some(prelude))?;
+        app.mode = crate::app::Mode::Browse;
+        return Ok(());
+    }
     let local_prepare = resolve_action_local_prepare(&resolved, &action, &app.local_config)
         .context("failed to prepare action")?;
     let initial_plan = if local_prepare.is_none() {
@@ -149,6 +171,57 @@ pub(crate) fn run_selected_action<B: Backend + io::Write>(
         Err(error) => format!("action failed: {error}"),
     };
     restore_result?;
+    Ok(())
+}
+
+fn run_simulated_selected<B: Backend + io::Write>(
+    terminal: &mut Terminal<B>,
+    app: &mut App,
+    resolved: &ResolvedHost,
+    prelude: Option<String>,
+) -> Result<()> {
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        DisableMouseCapture,
+        LeaveAlternateScreen
+    )?;
+    terminal.show_cursor()?;
+
+    let result = run_simulated_foreground(resolved, prelude);
+    let restore_result = restore_tui_terminal(terminal);
+
+    app.status = match result {
+        Ok(()) => format!("simulation session closed: {}", resolved.path),
+        Err(error) => format!("simulation session failed: {error}"),
+    };
+    restore_result?;
+    Ok(())
+}
+
+fn run_simulated_foreground(resolved: &ResolvedHost, prelude: Option<String>) -> Result<()> {
+    let mut shell = SimulatedShell::for_host(resolved);
+    let mut stdout = io::stdout();
+    if let Some(prelude) = prelude {
+        stdout.write_all(prelude.as_bytes())?;
+    }
+    stdout.write_all(shell.banner().as_bytes())?;
+    stdout.flush()?;
+
+    let stdin = io::stdin();
+    for line in stdin.lock().lines() {
+        let line = line?;
+        let output = shell.submit_line(&line);
+        stdout.write_all(output.data.as_bytes())?;
+        stdout.flush()?;
+        if output.closed {
+            return Ok(());
+        }
+    }
+
+    let output = shell.close();
+    stdout.write_all(output.data.as_bytes())?;
+    stdout.flush()?;
     Ok(())
 }
 

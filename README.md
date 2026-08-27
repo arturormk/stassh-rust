@@ -2,29 +2,35 @@
 
 # stassh-rust
 
-`stassh-rust` is an early Rust implementation of a portable, offline-first SSH workspace with reusable actions for workflows such as VNC over SSH.
+`stassh-rust` is a Rust implementation of a portable, offline-first SSH workspace with reusable actions for workflows such as VNC over SSH.
 
-The current codebase provides a useful MVP: a `stassh` CLI, a `stassh-tui` terminal UI, an early `stassh-gui` desktop app, and a reusable `stassh-core` crate. It stores host inventory and common actions in a local JSON vault, maps machine-local identities and tool capabilities in a local config file, and launches the system OpenSSH client.
-
-![stassh-tui browsing a demo SSH vault with folders, hosts, jumps, identity mappings, forwards, and actions](examples/github-screenshot/stassh-tui-screenshot.jpg)
+The current codebase provides a `stassh` CLI, a `stassh-tui` terminal UI, a `stassh-gui` desktop app, and a reusable `stassh-core` crate. It stores host inventory and common actions in a local JSON vault, maps machine-local identities and tool capabilities in a local config file, and launches the system OpenSSH client.
 
 `stassh-tui` gives the vault a fast terminal interface for browsing folders,
 searching hosts, inspecting jump chains, forwards, and actions, and launching
 OpenSSH connections without giving up plain-file portability.
 
+![stassh-tui browsing a demo SSH vault with folders, hosts, jumps, identity mappings, forwards, and actions](examples/github-screenshot/stassh-tui-screenshot.jpg)
+
+`stassh-gui` presents the same workspace as a desktop app with a persistent host
+tree, contextual inspector/editor panes, embedded terminal tabs, terminal layout
+tabs, action previews and terminal-session runners, and simulation mode for
+screenshot-safe demos.
+
+![stassh-gui showing a simulated SSH workspace with host navigation, inspector details, and embedded terminal sessions](examples/github-screenshot/stassh-gui-screenshot.jpg)
+
 The longer-term project direction is documented in `docs/BLUEPRINT.md` and `docs/plan/`.
 
-The CLI and TUI are the most mature frontends today. `stassh-gui` now exists as
-an MVP desktop frontend with host browsing, editing, search, contextual
-inspection, diagnostics, action preview/run surfaces, embedded OpenSSH terminal
-sessions, and a deterministic simulation mode for screenshots and visual checks.
-GUI action authoring still needs deeper JSON-first workflow coverage.
+All three frontends share the same core model. Use the CLI for scripting, the
+TUI for terminal-first and low-resource workflows, and the GUI when a desktop
+workspace with embedded sessions and visual layouts is useful.
 
 ## Current Status
 
 Implemented now:
 
-- Cargo workspace with `stassh-core`, `stassh`, and `stassh-tui`
+- Cargo workspace with `stassh-core`, `stassh`, `stassh-tui`, and
+  `stassh-gui`
 - plain, unencrypted `vault.json` storage with `format_version`
 - duplicate host detection for vault hygiene
 - read-only vault health checks
@@ -50,9 +56,12 @@ Implemented now:
 - optional structured JSON output for CLI commands
 - `stassh-tui` for browsing, searching, inspecting, connecting, running actions, and basic vault editing
 - optional `stassh-tui` tmux/byobu window launch with `t` for multiple simultaneous SSH sessions
-- `stassh-gui` MVP with a Tauri desktop shell, host tree, search,
-  contextual inspector/editor panel, embedded xterm.js terminal tabs,
-  GUI-managed PTYs, and OpenSSH-backed connections
+- shared simulation mode for `stassh-tui` and `stassh-gui` with in-memory demo
+  vault/local/secrets data, fake encrypted secrets, and scripted terminal
+  sessions
+- `stassh-gui` with a Tauri desktop shell, host tree, search, contextual
+  inspector/editor panel, embedded xterm.js terminal tabs, GUI-managed PTYs,
+  and OpenSSH-backed connections
 - GUI inspector panes for linked secrets, ordered jump-chain editing, and
   structured local/remote/dynamic forward editing
 - GUI action list, resolved dry-run preview, and action terminal-session running
@@ -60,9 +69,7 @@ Implemented now:
   terminal-to-layout composition, layout-local broadcast input, internal
   full-screen terminal panes, per-terminal find, and host-tree open-session
   indicators, plus visible exited-state badges for completed terminal sessions
-- GUI simulation mode with in-memory demo vault/local/secrets data, fake
-  encrypted secrets, and scripted terminal sessions for screenshots and visual
-  checks
+- GUI simulation mode for screenshot and visual-check workflows
 
 Not implemented yet:
 
@@ -103,6 +110,7 @@ Run the TUI from source:
 ```bash
 cargo run -p stassh-tui -- --version
 cargo run -p stassh-tui
+cargo run -p stassh-tui -- --simulation
 ```
 
 Run the GUI from source:
@@ -121,18 +129,22 @@ cd apps/stassh-gui
 npm run tauri dev -- -- --simulation
 ```
 
-Simulation mode keeps the demo vault, local config, and secrets store in memory.
-It does not read or write your real `~/.ssh/stassh` files, and terminal sessions
-use a small scripted shell instead of real OpenSSH. Simulated shells print a
-demo connection message and prompt automatically, then support simple commands
-such as `help`, `ls`, `pwd`, `cat`, `uptime`, `clear`, and `exit`. Fake
-encrypted demo secrets unlock with the simulation-only master password
-`simulation`.
+Simulation mode is available in both `stassh-tui` and `stassh-gui`. It keeps the
+demo vault, local config, and secrets store in memory. It does not read or write
+your real `~/.ssh/stassh` files, and terminal sessions use a small scripted shell
+instead of real OpenSSH. Simulated shells print a demo connection message and
+prompt automatically, then support simple commands such as `help`, `ls`, `pwd`,
+`cat`, `uptime`, `clear`, and `exit`. Fake encrypted demo secrets unlock with
+the simulation-only master password `simulation`.
 
-From the repository root, the helper script can launch a development build and
-optionally use copied demo data:
+From the repository root, the helper scripts can launch development builds and
+optionally use copied demo data or simulation mode:
 
 ```bash
+./run-stassh-tui-dev.sh
+./run-stassh-tui-dev.sh --fixture
+./run-stassh-tui-dev.sh --simulation
+
 ./run-stassh-gui-dev.sh
 ./run-stassh-gui-dev.sh --fixture
 ./run-stassh-gui-dev.sh --simulation
@@ -476,8 +488,8 @@ and `stassh-tui` restores the TUI instead of returning to the shell prompt.
 
 ## Desktop GUI
 
-`stassh-gui` is an MVP desktop frontend under `apps/stassh-gui`. It uses Tauri
-with a React/xterm.js frontend and a Rust PTY/session backend. It reuses
+`stassh-gui` is the desktop frontend under `apps/stassh-gui`. It uses Tauri with
+a React/xterm.js frontend and a Rust PTY/session backend. It reuses
 `stassh-core` for vault loading, host search, diagnostics, OpenSSH command
 generation, and vault edits.
 
@@ -521,15 +533,9 @@ The GUI host tree is a persistent navigator, not a batch launcher. Batch host
 selection remains a TUI workflow; in the GUI, open multiple hosts by
 double-clicking them or using Connect from the Inspector.
 
-The GUI currently stores session tabs, layouts, and terminal state only in
-frontend runtime state. It does not add GUI-only fields to `vault.json`, and it
-does not persist layouts across restart yet.
-
-Known GUI polish work:
-
-- add stronger JSON-first action authoring support
-- automate screenshot regression coverage for terminal layouts using simulation
-  mode as the deterministic data/session source
+The GUI stores session tabs, layouts, and terminal state only in frontend runtime
+state. It does not add GUI-only fields to `vault.json`; persistent portable data
+remains shared with the CLI and TUI.
 
 ## Duplicate Host Reports
 

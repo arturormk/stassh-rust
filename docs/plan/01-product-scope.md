@@ -33,7 +33,7 @@ The application should expose what it is doing instead of hiding SSH concepts be
 
 ## MVP Scope
 
-The first useful version should aim for:
+The first useful version includes:
 
 - folder hierarchy and host records
 - usernames, ports, tags, and notes where practical
@@ -44,9 +44,12 @@ The first useful version should aim for:
 - local storage with explicit format versioning
 - CLI list/search/show/connect/diagnose basics
 - TUI browse/search/connect basics
+- GUI browsing, editing, embedded terminal sessions, terminal layouts, and
+  screenshot-safe simulation mode
 - encrypted portable vault support as soon as storage stabilizes
 
-The MVP may ship in smaller slices. A useful CLI-only or CLI-plus-TUI release is acceptable before the GUI is ready.
+The CLI, TUI, and GUI now form complementary entry points over the same portable
+workspace rather than a sequence where the GUI is expected to arrive later.
 
 ## Initial Non-Goals
 

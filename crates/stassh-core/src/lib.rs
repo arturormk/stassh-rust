@@ -45,6 +45,6 @@ pub use secrets::{
 };
 pub use simulation::{
     SIMULATION_MASTER_PASSWORD, SimulatedOutput, SimulatedShell, SimulationWorkspace,
-    demo_workspace,
+    demo_workspace, simulated_remote_command_output,
 };
 pub use storage::{load_vault, save_vault};

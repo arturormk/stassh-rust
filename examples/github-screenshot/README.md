@@ -1,19 +1,35 @@
 # GitHub Screenshot Example
 
-This directory contains fake, screenshot-safe `stassh` data. Hostnames, IP
-addresses, fingerprints, and key paths are examples only.
+This directory contains the screenshot-safe images used by the top-level
+`README.md`.
 
-Launch the TUI with:
+The screenshots should be captured from simulation mode. Simulation mode loads
+deterministic in-memory demo vault, local config, and secrets data, then routes
+terminal sessions through scripted SSH-like shells instead of real hosts.
+
+Launch the TUI from the repository root with:
 
 ```bash
-cargo run -p stassh-tui -- \
-  --vault examples/github-screenshot/vault.json \
-  --local-config examples/github-screenshot/local.json
+./run-stassh-tui-dev.sh --simulation
 ```
 
-Useful hosts to highlight:
+Launch the GUI from the repository root with:
 
-- `postgres-primary`: nested folder, two-hop jump chain, local port forward
-- `api-prod-01`: production app host through `bastion-use1`
-- `redis-cache`: dynamic SOCKS forward through `bastion-euw1`
-- `kind-control-plane`: staging/lab host with a remote forward
+```bash
+./run-stassh-gui-dev.sh --simulation
+```
+
+The committed images are:
+
+- `stassh-tui-screenshot.jpg`
+- `stassh-gui-screenshot.jpg`
+
+Useful simulated hosts to highlight:
+
+- `web-prod-01`: production web host through `bastion-01`, with a local HTTPS
+  forward and a host-specific action
+- `db-prod-01`: production database host with an intentionally unmapped identity
+  for diagnostics screenshots
+- `cache-prod-01`: production cache host through `bastion-01`
+- `web-staging-01`: safe staging target for demos
+- `metrics-01`: shared monitoring host with a dynamic SOCKS forward

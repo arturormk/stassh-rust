@@ -351,6 +351,18 @@ In `stassh-tui`, highlight a host, press `a`, choose the action, and press
 itself when SSH exits. If a local viewer or wrapper script exits early, the CLI
 prints that status, which is useful when diagnosing forwarded VNC setup.
 
+For screenshot-safe demos or practicing workflows without real SSH hosts, launch
+the TUI simulation environment:
+
+```bash
+stassh-tui --simulation
+```
+
+Simulation mode uses in-memory corporate-style demo data, fake encrypted secrets
+with the master password `simulation`, and scripted terminal sessions instead of
+OpenSSH. Edits stay in memory for the current process, and reload resets the demo
+workspace.
+
 In `stassh-gui`, select a host, open Actions from the inspector, and use
 Preview or Run on any common or host-specific action. Run opens the action as a
 terminal tab and keeps the SSH output visible in the workspace.

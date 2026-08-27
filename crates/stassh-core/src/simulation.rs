@@ -314,6 +314,23 @@ impl SimulatedShell {
         }
     }
 
+    pub fn submit_line(&mut self, line: &str) -> SimulatedOutput {
+        if self.closed {
+            return SimulatedOutput {
+                data: String::new(),
+                closed: true,
+            };
+        }
+        let mut output = self.run_command(line.trim());
+        if !self.closed {
+            output.push_str(&self.prompt());
+        }
+        SimulatedOutput {
+            data: output,
+            closed: self.closed,
+        }
+    }
+
     pub fn close(&mut self) -> SimulatedOutput {
         if !self.closed {
             self.closed = true;
@@ -368,6 +385,20 @@ impl SimulatedShell {
             }
             other => format!("{other}: command not found\r\n"),
         }
+    }
+}
+
+pub fn simulated_remote_command_output(command: &str) -> String {
+    if command.contains("df -h") {
+        "Filesystem      Size  Used Avail Use% Mounted on\r\n/dev/sim-root    80G   43G   34G  57% /\r\n/dev/sim-data   250G  121G  118G  51% /srv\r\n"
+            .to_string()
+    } else if command.contains("tail") && command.contains("nginx") {
+        "2026/08/27 09:41:02 [warn] upstream response time exceeded simulation threshold\r\n2026/08/27 09:42:18 [info] worker process recycled cleanly\r\n"
+            .to_string()
+    } else if command.contains("dashboard") {
+        "dashboard tunnel ready\r\n".to_string()
+    } else {
+        "simulated command completed successfully\r\n".to_string()
     }
 }
 
@@ -532,6 +563,7 @@ mod tests {
                 .data
                 .contains("demo environment")
         );
+        assert!(shell.submit_line("uptime").data.contains("load average"));
         let output = shell.handle_input("exit\r");
         assert!(output.closed);
         assert!(

@@ -6,12 +6,12 @@ use std::{
 };
 
 use anyhow::Result;
-use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use stassh_core::{
     ActionDefinition, AddHost, Folder, Host, HostSelector, LocalConfig, SecretField,
-    SecretPlaintext, SecretsStore, UpdateHost, Vault, load_local_config, load_secrets, load_vault,
-    save_vault,
+    SecretPlaintext, SecretsStore, UpdateHost, Vault, demo_workspace, load_local_config,
+    load_secrets, load_vault, save_vault,
 };
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
@@ -27,6 +27,30 @@ pub(crate) enum KeyAction {
     Connect,
     RunAction(Uuid),
     TmuxWindow,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StatusPageKey {
+    F1,
+    CtrlG,
+}
+
+impl StatusPageKey {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::F1 => "F1",
+            Self::CtrlG => "Ctrl-G",
+        }
+    }
+
+    fn matches(self, key: KeyEvent) -> bool {
+        match self {
+            Self::F1 => key.code == KeyCode::F(1),
+            Self::CtrlG => {
+                key.code == KeyCode::Char('g') && key.modifiers.contains(KeyModifiers::CONTROL)
+            }
+        }
+    }
 }
 
 const DOUBLE_CLICK: Duration = Duration::from_millis(500);
@@ -75,6 +99,8 @@ pub(crate) struct App {
     pub(crate) status: String,
     pub(crate) quit: bool,
     pub(crate) tmux_available: bool,
+    pub(crate) simulation: bool,
+    pub(crate) status_page_key: StatusPageKey,
     last_mouse_click: Option<MouseClick>,
 }
 
@@ -87,6 +113,8 @@ impl App {
         local_config: LocalConfig,
         secrets_store: Option<SecretsStore>,
         tmux_available: bool,
+        simulation: bool,
+        status_page_key: StatusPageKey,
     ) -> Self {
         let collapsed_folders = default_collapsed_folders(&vault);
         let tree = build_tree(&vault, &collapsed_folders);
@@ -120,12 +148,14 @@ impl App {
             status: String::new(),
             quit: false,
             tmux_available,
+            simulation,
+            status_page_key,
             last_mouse_click: None,
         }
     }
 
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> Result<KeyAction> {
-        if key.code == KeyCode::F(1) {
+        if self.status_page_key.matches(key) {
             self.status_page = self.status_page.saturating_add(1);
             return Ok(KeyAction::None);
         }
@@ -532,13 +562,20 @@ impl App {
     }
 
     fn reload(&mut self) -> Result<()> {
-        self.vault = load_vault(&self.vault_path)?;
-        self.local_config = load_local_config(&self.local_config_path)?;
-        self.secrets_store = if self.secrets_path.exists() {
-            Some(load_secrets(&self.secrets_path)?)
+        if self.simulation {
+            let workspace = demo_workspace()?;
+            self.vault = workspace.vault;
+            self.local_config = workspace.local_config;
+            self.secrets_store = Some(workspace.secrets_store);
         } else {
-            None
-        };
+            self.vault = load_vault(&self.vault_path)?;
+            self.local_config = load_local_config(&self.local_config_path)?;
+            self.secrets_store = if self.secrets_path.exists() {
+                Some(load_secrets(&self.secrets_path)?)
+            } else {
+                None
+            };
+        }
         self.prune_collapsed_folders();
         self.rebuild_tree();
         self.selected = self.selected.min(self.tree.len().saturating_sub(1));
@@ -556,7 +593,30 @@ impl App {
         self.forward_editor = None;
         self.secrets_view = None;
         self.reveal_prompt = None;
-        self.status = "vault reloaded".to_string();
+        self.status = if self.simulation {
+            "simulation workspace reset".to_string()
+        } else {
+            "vault reloaded".to_string()
+        };
+        Ok(())
+    }
+
+    fn load_mutation_vault(&self) -> Result<Vault> {
+        if self.simulation {
+            Ok(self.vault.clone())
+        } else {
+            Ok(load_vault(&self.vault_path)?)
+        }
+    }
+
+    fn commit_mutation_vault(&mut self, vault: Vault) -> Result<()> {
+        if self.simulation {
+            self.vault = vault;
+        } else {
+            save_vault(&self.vault_path, &vault)?;
+            self.vault = vault;
+            self.local_config = load_local_config(&self.local_config_path)?;
+        }
         Ok(())
     }
 
@@ -770,7 +830,7 @@ impl App {
             self.status = "select a host to copy".to_string();
             return Ok(());
         };
-        let mut vault = load_vault(&self.vault_path)?;
+        let mut vault = self.load_mutation_vault()?;
         let Some(source) = vault.host(source_id).cloned() else {
             self.status = "copy error: selected host not found".to_string();
             return Ok(());
@@ -802,9 +862,7 @@ impl App {
         }
         let copied_id = copied.id;
         let copied_path = vault.host_path(&copied);
-        save_vault(&self.vault_path, &vault)?;
-        self.vault = vault;
-        self.local_config = load_local_config(&self.local_config_path)?;
+        self.commit_mutation_vault(vault)?;
         self.prune_collapsed_folders();
         self.rebuild_tree();
         self.select_host(copied_id).unwrap_or_else(|| {
@@ -853,7 +911,7 @@ impl App {
             return Ok(());
         };
         let previous_selection = self.selected;
-        let mut vault = load_vault(&self.vault_path)?;
+        let mut vault = self.load_mutation_vault()?;
         let status = match pending_delete {
             DeleteConfirmation::Host { id, .. } => {
                 let deleted = match vault.delete_host(HostSelector::Id(id)) {
@@ -881,9 +939,7 @@ impl App {
                 format!("folder deleted: {}", deleted.name)
             }
         };
-        save_vault(&self.vault_path, &vault)?;
-        self.vault = vault;
-        self.local_config = load_local_config(&self.local_config_path)?;
+        self.commit_mutation_vault(vault)?;
         self.prune_collapsed_folders();
         self.rebuild_tree();
         self.selected = previous_selection.min(self.tree.len().saturating_sub(1));
@@ -904,7 +960,7 @@ impl App {
             self.mode = Mode::Browse;
             return Ok(());
         };
-        let mut vault = load_vault(&self.vault_path)?;
+        let mut vault = self.load_mutation_vault()?;
         let saved_id = match editor.mode {
             HostEditorMode::Edit { host_id } => {
                 let update = match editor.to_update() {
@@ -939,9 +995,7 @@ impl App {
                 }
             }
         };
-        save_vault(&self.vault_path, &vault)?;
-        self.vault = vault;
-        self.local_config = load_local_config(&self.local_config_path)?;
+        self.commit_mutation_vault(vault)?;
         self.prune_collapsed_folders();
         self.rebuild_tree();
         self.select_host(saved_id).unwrap_or_else(|| {
@@ -962,7 +1016,7 @@ impl App {
             self.mode = Mode::Browse;
             return Ok(());
         };
-        let mut vault = load_vault(&self.vault_path)?;
+        let mut vault = self.load_mutation_vault()?;
         let saved_id = match editor.mode {
             FolderEditorMode::Edit { folder_id } => {
                 let name = match editor.name() {
@@ -1008,9 +1062,7 @@ impl App {
                 }
             }
         };
-        save_vault(&self.vault_path, &vault)?;
-        self.vault = vault;
-        self.local_config = load_local_config(&self.local_config_path)?;
+        self.commit_mutation_vault(vault)?;
         self.prune_collapsed_folders();
         self.rebuild_tree();
         self.select_folder(saved_id).unwrap_or_else(|| {
@@ -1031,7 +1083,7 @@ impl App {
             self.mode = Mode::Browse;
             return Ok(());
         };
-        let mut vault = load_vault(&self.vault_path)?;
+        let mut vault = self.load_mutation_vault()?;
         let identity_fingerprint = editor.selected_fingerprint();
 
         let saved_id = match vault.update_host(
@@ -1047,9 +1099,7 @@ impl App {
                 return Ok(());
             }
         };
-        save_vault(&self.vault_path, &vault)?;
-        self.vault = vault;
-        self.local_config = load_local_config(&self.local_config_path)?;
+        self.commit_mutation_vault(vault)?;
         self.prune_collapsed_folders();
         self.rebuild_tree();
         self.select_host(saved_id).unwrap_or_else(|| {
@@ -1067,7 +1117,7 @@ impl App {
             self.mode = Mode::Browse;
             return Ok(());
         };
-        let mut vault = load_vault(&self.vault_path)?;
+        let mut vault = self.load_mutation_vault()?;
         let saved_id = match vault.update_host(
             HostSelector::Id(editor.host_id),
             UpdateHost {
@@ -1081,9 +1131,7 @@ impl App {
                 return Ok(());
             }
         };
-        save_vault(&self.vault_path, &vault)?;
-        self.vault = vault;
-        self.local_config = load_local_config(&self.local_config_path)?;
+        self.commit_mutation_vault(vault)?;
         self.prune_collapsed_folders();
         self.rebuild_tree();
         self.select_host(saved_id).unwrap_or_else(|| {
@@ -1108,7 +1156,7 @@ impl App {
                 return Ok(());
             }
         };
-        let mut vault = load_vault(&self.vault_path)?;
+        let mut vault = self.load_mutation_vault()?;
         let saved_id = match vault.update_host(
             HostSelector::Id(editor.host_id),
             UpdateHost {
@@ -1122,9 +1170,7 @@ impl App {
                 return Ok(());
             }
         };
-        save_vault(&self.vault_path, &vault)?;
-        self.vault = vault;
-        self.local_config = load_local_config(&self.local_config_path)?;
+        self.commit_mutation_vault(vault)?;
         self.prune_collapsed_folders();
         self.rebuild_tree();
         self.select_host(saved_id).unwrap_or_else(|| {
@@ -1164,7 +1210,7 @@ impl App {
             self.mode = Mode::Browse;
             return Ok(());
         }
-        let mut vault = load_vault(&self.vault_path)?;
+        let mut vault = self.load_mutation_vault()?;
         if vault.folder(target_folder_id).is_none() {
             self.pending_move_hosts.clear();
             self.mode = Mode::Browse;
@@ -1194,9 +1240,7 @@ impl App {
             }
         }
         let target_path = vault.folder_path(target_folder_id);
-        save_vault(&self.vault_path, &vault)?;
-        self.vault = vault;
-        self.local_config = load_local_config(&self.local_config_path)?;
+        self.commit_mutation_vault(vault)?;
         self.prune_collapsed_folders();
         self.rebuild_tree();
         if let Some(first_id) = host_ids.first() {
@@ -1932,6 +1976,23 @@ mod tests {
             LocalConfig::default(),
             None,
             false,
+            false,
+            StatusPageKey::F1,
+        )
+    }
+
+    fn simulation_app() -> App {
+        let workspace = demo_workspace().unwrap();
+        App::new(
+            PathBuf::from("simulation://vault.json"),
+            PathBuf::from("simulation://local.json"),
+            PathBuf::from("simulation://secrets.json"),
+            workspace.vault,
+            workspace.local_config,
+            Some(workspace.secrets_store),
+            false,
+            true,
+            StatusPageKey::F1,
         )
     }
 
@@ -1982,6 +2043,29 @@ mod tests {
             .unwrap()
             .id;
         assert!(app.collapsed_folders.contains(&folder_id));
+    }
+
+    #[test]
+    fn simulation_copy_is_in_memory_and_reload_resets_demo_workspace() {
+        let mut app = simulation_app();
+        select_label(&mut app, "web-prod-01");
+
+        app.copy_selected_host().unwrap();
+
+        assert!(
+            app.vault
+                .hosts
+                .iter()
+                .any(|host| host.display_name == "web-prod-01 copy")
+        );
+        app.reload().unwrap();
+        assert!(
+            !app.vault
+                .hosts
+                .iter()
+                .any(|host| host.display_name == "web-prod-01 copy")
+        );
+        assert_eq!(app.status, "simulation workspace reset");
     }
 
     #[test]
@@ -2366,6 +2450,22 @@ mod tests {
         assert_eq!(app.status_page, 1);
         assert_eq!(app.mode, Mode::EditHost);
         assert_eq!(app.editor.as_ref().unwrap().fields[0].value, before);
+    }
+
+    #[test]
+    fn ctrl_g_cycles_status_page_when_configured_for_byobu() {
+        let mut app = sample_app();
+        app.status_page_key = StatusPageKey::CtrlG;
+
+        let f1_action = app.handle_key(key(KeyCode::F(1))).unwrap();
+        assert_eq!(f1_action, KeyAction::None);
+        assert_eq!(app.status_page, 0);
+
+        let ctrl_g_action = app
+            .handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL))
+            .unwrap();
+        assert_eq!(ctrl_g_action, KeyAction::None);
+        assert_eq!(app.status_page, 1);
     }
 
     #[test]

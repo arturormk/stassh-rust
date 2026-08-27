@@ -14,7 +14,7 @@ use stassh_core::{
     TempOpenSshConfig, UpdateHost, Vault, demo_workspace, ensure_home_stassh_permissions,
     load_local_config, load_secrets, load_vault, local_config_path, parse_prepare_env,
     prepare_openssh_command, resolve_action_local_prepare, resolve_action_plan, save_vault,
-    secrets_path, vault_path,
+    secrets_path, simulated_remote_command_output, vault_path,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
@@ -1252,20 +1252,6 @@ fn start_simulated_session(
         session_id,
         initial_output: output,
     })
-}
-
-fn simulated_remote_command_output(command: &str) -> String {
-    if command.contains("df -h") {
-        "Filesystem      Size  Used Avail Use% Mounted on\r\n/dev/sim-root    80G   43G   34G  57% /\r\n/dev/sim-data   250G  121G  118G  51% /srv\r\n"
-            .to_string()
-    } else if command.contains("tail") && command.contains("nginx") {
-        "2026/08/27 09:41:02 [warn] upstream response time exceeded simulation threshold\r\n2026/08/27 09:42:18 [info] worker process recycled cleanly\r\n"
-            .to_string()
-    } else if command.contains("dashboard") {
-        "dashboard tunnel ready\r\n".to_string()
-    } else {
-        "simulated command completed successfully\r\n".to_string()
-    }
 }
 
 fn start_terminal_session(

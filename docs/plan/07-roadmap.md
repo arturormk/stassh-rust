@@ -52,7 +52,16 @@
 - Add deterministic merge behavior and basic conflict reporting.
 - Add snapshots only after operation replay behavior is tested.
 
-## Milestone 7: GUI MVP
+## Milestone 6.5: Shared Simulation
+
+- Add deterministic in-memory demo vault, local config, fake encrypted secrets,
+  and scripted shell behavior in `stassh-core`.
+- Wire `stassh-tui --simulation` to use the shared demo workspace and run
+  simulated foreground connect/action sessions.
+- Wire `stassh-gui --simulation` to use the same demo workspace and simulated
+  terminal tabs for screenshots and visual checks.
+
+## Milestone 7: Desktop GUI
 
 - Implemented a Tauri-based desktop app under `apps/stassh-gui`.
 - Reuse core APIs for vault, host resolution, diagnostics, and OpenSSH orchestration.
@@ -71,10 +80,13 @@
   a TUI workflow.
 - Keep terminal byte streaming out of heavyweight frontend state.
 
-Remaining GUI polish:
+Future GUI polish:
 
 - Add stronger JSON-first action authoring support.
 - Add automated visual regression coverage for terminal layouts.
+- Keep the README screenshots in `examples/github-screenshot/` captured from
+  `./run-stassh-tui-dev.sh --simulation` and
+  `./run-stassh-gui-dev.sh --simulation`.
 
 ## Milestone 8: Actions And Capabilities
 

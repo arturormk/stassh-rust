@@ -30,25 +30,32 @@ CLI behavior should become compatibility-conscious earlier than graphical layout
 
 The TUI should work as a full interface to the same vault on terminal-only and low-resource systems.
 
-Initial features:
+Current features:
 
 - browse folders
 - fuzzy search
 - inspect host details
 - connect
-- basic create/edit/delete when the model stabilizes
+- basic create/edit/delete
 - return to TUI after SSH exits
+- simulation mode using shared core demo data and scripted sessions
+- byobu-aware status paging key: `F1` normally, `Ctrl-G` when byobu captures
+  function keys
 
 Prefer suspending the alternate-screen UI and launching ordinary `ssh` attached directly to the terminal. This preserves the user's terminal emulator behavior and keeps the TUI lightweight.
 
 Optional tmux/byobu integration exists in the TUI. The application must not
 require tmux.
 
+In `--simulation`, the TUI should use the same deterministic in-memory demo
+workspace as the GUI, leave the alternate-screen UI for simulated connect/action
+sessions, and return after the scripted shell exits.
+
 ## GUI
 
 The GUI should be modest, dense, fast, keyboard-friendly, and visually restrained.
 
-Current MVP features:
+Current features:
 
 - host tree
 - search
@@ -85,7 +92,7 @@ The current GUI uses Tauri, React, xterm.js, and a Rust PTY backend. Any future
 framework changes should be justified by maintainability, accessibility,
 keyboard handling, state management, and performance rather than fashion.
 
-Near-term GUI polish:
+Future GUI polish:
 
 - add richer JSON-first action authoring support
 - add automated screenshot or equivalent visual regression checks for terminal
@@ -111,10 +118,15 @@ existing terminal sessions, not separate SSH sessions, and they should remain
 outside the portable vault unless a future cross-frontend persistence model is
 designed.
 
-Simulation mode is a GUI development and documentation aid. It loads
+Simulation mode is a frontend development and documentation aid. It loads
 deterministic in-memory demo data from core, exposes virtual `simulation://`
-paths, and drives terminal panes with scripted shell output instead of real
+paths, and drives terminal sessions with scripted shell output instead of real
 OpenSSH. It should remain clearly separated from real connection execution.
+
+The screenshot examples in `examples/github-screenshot/` should be produced
+from the repository root with `./run-stassh-tui-dev.sh --simulation` and
+`./run-stassh-gui-dev.sh --simulation` so captures are repeatable and do not
+depend on private infrastructure.
 
 ## Keyboard And Actions
 

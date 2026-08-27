@@ -1541,15 +1541,15 @@ Application-level validation and locking should be used where needed.
 
 # 44. GUI
 
-The desktop GUI exists as an MVP under `apps/stassh-gui`. It uses Tauri with a
-React/xterm.js frontend and a Rust PTY/session backend.
+The desktop GUI exists under `apps/stassh-gui`. It uses Tauri with a React/xterm.js
+frontend and a Rust PTY/session backend.
 
 The precise frontend framework is still an implementation detail rather than a
 core contract.
 
 The GUI should remain visually modest and highly responsive.
 
-The current MVP layout follows this shape:
+The original target layout followed this shape:
 
 ```text
 ┌──────────────────────┬────────────────────────────────────────┐
@@ -1581,7 +1581,12 @@ host-tree indicators for open sessions, action dry-run preview and action
 terminal-session running, and a GUI simulation mode with deterministic demo data
 and scripted SSH-like terminal sessions.
 
-The next GUI polish areas are JSON-first action authoring support, richer
+The same core simulation data and scripted shell behavior are available through
+`stassh-tui --simulation`, where connect and action sessions run as simulated
+foreground sessions outside the alternate screen and reload resets the in-memory
+demo workspace.
+
+Future GUI polish areas are JSON-first action authoring support, richer
 diagnostics surfaces, and automated visual regression coverage built on
 simulation mode.
 

@@ -16,9 +16,14 @@ Secrets. Keep it in the repo while there are open GUI items.
   in-memory demo data, screenshot-safe secrets, scripted terminal startup
   prompts, and simple shell commands without real SSH hosts. Remaining work is
   to add automated screenshot or equivalent visual checks that launch
-  `stassh-gui --simulation` and exercise terminal layout tabs, drag/drop layout
-  composition, tab reordering, equal-grid and main-pane modes, broadcast input,
-  internal full-screen panes, focused terminal find, and scrollback preservation.
+  `./run-stassh-gui-dev.sh --simulation` and exercise terminal layout tabs,
+  drag/drop layout composition, tab reordering, equal-grid and main-pane modes,
+  broadcast input, internal full-screen panes, focused terminal find, and
+  scrollback preservation. The committed screenshot pair in
+  `examples/github-screenshot/` is the manual baseline for this work; refresh it
+  with `./run-stassh-tui-dev.sh --simulation` and
+  `./run-stassh-gui-dev.sh --simulation` when the intended visual baseline
+  changes.
 
 - Layout and session persistence.
   Terminal tabs, layout tabs, and terminal state are currently runtime-only.

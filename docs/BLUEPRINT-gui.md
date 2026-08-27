@@ -11,27 +11,25 @@ developer enough product, architecture, and workflow context to continue buildin
 the GUI without cloning the TUI's design or accidentally weakening the existing
 CLI/TUI semantics.
 
-As of the current MVP, `apps/stassh-gui` exists as a Tauri desktop app with a
-React/xterm.js frontend and Rust PTY/session backend. It can browse and edit the
-vault, search hosts, show diagnostics and OpenSSH previews in a contextual
-Inspector, and open embedded OpenSSH terminal sessions. Its terminal workspace
-already supports independent terminal tabs, independent `Layout {n}` tabs over
-existing sessions, equal-grid and main-pane layouts, drag/drop layout
-composition, layout-local broadcast input, host-tree open-session indicators,
-per-terminal find, exited-session badges in tabs and terminal headers, host
-notes in terminal headers, and internal full-screen terminal panes. It also has
-a GUI-first simulation mode with deterministic in-memory demo data, fake
-encrypted secrets, and scripted SSH-like terminal sessions for screenshots and
-future visual regression checks.
+`apps/stassh-gui` exists as a Tauri desktop app with a React/xterm.js frontend
+and Rust PTY/session backend. It can browse and edit the vault, search hosts,
+show diagnostics and OpenSSH previews in a contextual Inspector, and open
+embedded OpenSSH terminal sessions. Its terminal workspace supports independent
+terminal tabs, independent `Layout {n}` tabs over existing sessions, equal-grid
+and main-pane layouts, drag/drop layout composition, layout-local broadcast
+input, host-tree open-session indicators, per-terminal find, exited-session
+badges in tabs and terminal headers, host notes in terminal headers, and
+internal full-screen terminal panes. It also has a GUI-first simulation mode
+with deterministic in-memory demo data, fake encrypted secrets, and scripted
+SSH-like terminal sessions for screenshots and future visual regression checks.
 
 The project may and should diverge from this blueprint when implementation
 experience, platform constraints, performance testing, security review, or
 usability findings suggest a better approach.
 
-The remaining near-term GUI work is mostly polish and peripheral workflow depth:
-JSON-first action authoring support remains incomplete, richer diagnostics
-surfaces need more work, and terminal-layout behavior needs automated visual
-regression coverage.
+Near-term GUI work is mostly polish and peripheral workflow depth: JSON-first
+action authoring support, richer diagnostics surfaces, and automated visual
+regression coverage for terminal-layout behavior.
 
 ---
 
@@ -499,7 +497,7 @@ tools.
 
 The GUI should be visually polished without sacrificing density.
 
-Current MVP layout:
+Current layout:
 
 * left inventory sidebar with folders, hosts, search, and selection state,
 * main workspace with terminal and terminal-layout tabs when sessions exist,
@@ -625,9 +623,9 @@ Suggested channels:
 
 # 8. Testing And Acceptance
 
-The first useful GUI release now exists as an MVP. It can perform many common
-TUI workflows plus embedded SSH sessions, but several acceptance scenarios remain
-future work or need polish.
+The first useful GUI release can perform many common TUI workflows plus embedded
+SSH sessions. Acceptance coverage should protect both shared vault behavior and
+GUI-specific terminal/layout behavior.
 
 Core scenarios:
 

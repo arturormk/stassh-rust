@@ -9,7 +9,9 @@ use stassh_core::openssh::{
 };
 use uuid::Uuid;
 
-use crate::app::{App, DeleteConfirmation, FolderSelectionState, Mode, TreeItemKind};
+use crate::app::{
+    App, DeleteConfirmation, FolderSelectionState, Mode, StatusPageKey, TreeItemKind,
+};
 use crate::editor::{
     FolderEditor, FolderEditorMode, ForwardEditor, ForwardRowKind, HostEditor, HostEditorMode,
     IdentityEditor, JumpEditor,
@@ -1047,17 +1049,26 @@ fn draw_status(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let pages = status_pages(app, area.width.saturating_sub(2) as usize);
     let page_count = pages.len().max(1);
     let page_index = status_page_index(app.status_page, page_count);
-    let title = if page_count > 1 {
-        format!("Status {}/{}", page_index + 1, page_count)
-    } else {
-        "Status".to_string()
-    };
+    let title = status_title(page_index, page_count, app.status_page_key);
     let text = pages.get(page_index).cloned().unwrap_or_default();
 
     frame.render_widget(
         Paragraph::new(text).block(Block::default().title(title).borders(Borders::ALL)),
         area,
     );
+}
+
+fn status_title(page_index: usize, page_count: usize, key: StatusPageKey) -> String {
+    if page_count > 1 {
+        format!(
+            "Status {}/{} ({} more)",
+            page_index + 1,
+            page_count,
+            key.label()
+        )
+    } else {
+        "Status".to_string()
+    }
 }
 
 fn status_page_index(status_page: usize, page_count: usize) -> usize {
@@ -1268,6 +1279,27 @@ mod tests {
         assert_eq!(status_page_index(10, 0), 0);
     }
 
+    #[test]
+    fn status_title_includes_f1_hint_for_multiple_pages() {
+        assert_eq!(
+            status_title(0, 3, StatusPageKey::F1),
+            "Status 1/3 (F1 more)"
+        );
+        assert_eq!(
+            status_title(2, 3, StatusPageKey::F1),
+            "Status 3/3 (F1 more)"
+        );
+        assert_eq!(
+            status_title(0, 3, StatusPageKey::CtrlG),
+            "Status 1/3 (Ctrl-G more)"
+        );
+    }
+
+    #[test]
+    fn status_title_omits_f1_hint_for_single_page() {
+        assert_eq!(status_title(0, 1, StatusPageKey::CtrlG), "Status");
+    }
+
     fn test_app() -> App {
         App::new(
             std::path::PathBuf::from("/tmp/vault.json"),
@@ -1277,6 +1309,8 @@ mod tests {
             stassh_core::LocalConfig::new(),
             None,
             false,
+            false,
+            StatusPageKey::F1,
         )
     }
 }

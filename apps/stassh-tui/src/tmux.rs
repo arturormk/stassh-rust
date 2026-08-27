@@ -26,6 +26,21 @@ pub fn is_inside_tmux() -> bool {
     env::var_os("TMUX").is_some()
 }
 
+pub fn is_inside_byobu() -> bool {
+    has_byobu_environment(|name| env::var_os(name).is_some())
+}
+
+fn has_byobu_environment(mut is_set: impl FnMut(&str) -> bool) -> bool {
+    [
+        "BYOBU_BACKEND",
+        "BYOBU_PREFIX",
+        "BYOBU_CONFIG_DIR",
+        "BYOBU_RUN_DIR",
+    ]
+    .into_iter()
+    .any(|name| is_set(name))
+}
+
 pub fn default_temp_config_dir() -> PathBuf {
     let owner = env::var("UID")
         .or_else(|_| env::var("USER"))
@@ -171,6 +186,13 @@ mod tests {
         assert_eq!(command.title, "Customers/web");
         assert_eq!(command.shell_command, "ssh -p 22 -l deploy web.example");
         assert!(command.config_path.is_none());
+    }
+
+    #[test]
+    fn detects_byobu_environment() {
+        assert!(has_byobu_environment(|name| name == "BYOBU_BACKEND"));
+        assert!(has_byobu_environment(|name| name == "BYOBU_RUN_DIR"));
+        assert!(!has_byobu_environment(|_| false));
     }
 
     #[test]
