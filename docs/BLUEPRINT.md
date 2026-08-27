@@ -1577,10 +1577,13 @@ editing, contextual inspection, diagnostics, OpenSSH command previews, embedded
 terminal tabs, terminal find, terminal layout tabs, equal-grid and main-pane
 terminal views, layout-local broadcast input, drag/drop layout composition,
 internal full-screen terminal panes, close confirmation for running sessions,
-and host-tree indicators for open sessions.
+host-tree indicators for open sessions, action dry-run preview and action
+terminal-session running, and a GUI simulation mode with deterministic demo data
+and scripted SSH-like terminal sessions.
 
-The next GUI polish areas are action running, dry-run inspection,
-JSON-first authoring support, and richer diagnostics surfaces.
+The next GUI polish areas are JSON-first action authoring support, richer
+diagnostics surfaces, and automated visual regression coverage built on
+simulation mode.
 
 ---
 

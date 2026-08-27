@@ -12,10 +12,13 @@ Secrets. Keep it in the repo while there are open GUI items.
   config needs, and other relevant failure states.
 
 - Terminal layout regression coverage.
-  Add manual, screenshot, or equivalent visual checks for terminal layout tabs,
-  drag/drop layout composition, tab reordering, equal-grid and main-pane modes,
-  broadcast input, internal full-screen panes, focused terminal find, and
-  scrollback preservation.
+  GUI simulation mode now provides the deterministic environment for this work:
+  in-memory demo data, screenshot-safe secrets, scripted terminal startup
+  prompts, and simple shell commands without real SSH hosts. Remaining work is
+  to add automated screenshot or equivalent visual checks that launch
+  `stassh-gui --simulation` and exercise terminal layout tabs, drag/drop layout
+  composition, tab reordering, equal-grid and main-pane modes, broadcast input,
+  internal full-screen panes, focused terminal find, and scrollback preservation.
 
 - Layout and session persistence.
   Terminal tabs, layout tabs, and terminal state are currently runtime-only.

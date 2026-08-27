@@ -19,16 +19,19 @@ already supports independent terminal tabs, independent `Layout {n}` tabs over
 existing sessions, equal-grid and main-pane layouts, drag/drop layout
 composition, layout-local broadcast input, host-tree open-session indicators,
 per-terminal find, exited-session badges in tabs and terminal headers, host
-notes in terminal headers, and internal full-screen terminal panes.
+notes in terminal headers, and internal full-screen terminal panes. It also has
+a GUI-first simulation mode with deterministic in-memory demo data, fake
+encrypted secrets, and scripted SSH-like terminal sessions for screenshots and
+future visual regression checks.
 
 The project may and should diverge from this blueprint when implementation
 experience, platform constraints, performance testing, security review, or
 usability findings suggest a better approach.
 
 The remaining near-term GUI work is mostly polish and peripheral workflow depth:
-action running, dry-run inspection, and JSON-first authoring support remain
-incomplete, richer diagnostics surfaces need more work, and terminal-layout
-behavior needs broader manual and visual regression coverage.
+JSON-first action authoring support remains incomplete, richer diagnostics
+surfaces need more work, and terminal-layout behavior needs automated visual
+regression coverage.
 
 ---
 
@@ -416,6 +419,14 @@ Use OpenSSH for the actual connection. Password prompts, key prompts,
 keyboard-interactive authentication, host-key verification, agent use, and remote
 terminal behavior should happen inside the embedded terminal whenever possible.
 
+Simulation mode intentionally bypasses OpenSSH execution while keeping the same
+frontend terminal/session surface. It loads demo vault, local config, and
+secrets data in memory, returns virtual `simulation://...` paths, and routes
+terminal input to a scripted shell. The simulated shell should print an initial
+connection message and prompt automatically, then provide deterministic output
+for common commands such as `help`, `ls`, `pwd`, `cat`, `uptime`, `clear`, and
+`exit`.
+
 ## 4.2 Tabs And Panes
 
 The GUI supports multiple concurrent sessions without requiring tmux.
@@ -435,6 +446,7 @@ Current session affordances:
 * search focused terminal scrollback with optional case sensitivity,
 * show host notes in terminal headers when notes are available,
 * show connected/running/exited state,
+* open screenshot-safe simulated sessions with deterministic startup output,
 * remove a session from a layout without closing the SSH session,
 * confirm before closing a still-running terminal session,
 * close a terminal session,
@@ -644,6 +656,8 @@ Core scenarios:
 Already-implemented terminal scenarios should also remain covered:
 
 * open multiple embedded terminal tabs,
+* open simulated terminal tabs with the initial message and prompt visible
+  without user input,
 * create and close layout tabs without closing sessions,
 * add terminal sessions to layouts by drag/drop,
 * create layouts by dragging one terminal tab onto another,
@@ -674,6 +688,9 @@ Implementation should include unit tests around session/action planning where
 possible, integration tests for backend commands that do not require real remote
 hosts, and manual regression scripts for PTY behavior, prompts, resize handling,
 and process cleanup.
+Simulation mode should be the default data/session source for screenshot
+captures and later visual regression automation because it avoids private
+infrastructure and real SSH availability.
 
 ---
 
@@ -686,6 +703,8 @@ Defaults for the current implementation:
   state operations,
 * use system OpenSSH for connections,
 * embed SSH sessions through a GUI-managed PTY,
+* use `stassh-core` simulation fixtures and scripted shells for GUI simulation
+  mode,
 * keep terminal tabs and layout tabs as frontend runtime state,
 * treat embedded VNC as optional but architecturally anticipated,
 * do not add GUI-only vault schema fields,

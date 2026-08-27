@@ -209,7 +209,15 @@ type ActionsPane = {
 };
 
 type Tab =
-  | { type: "terminal"; id: Id; sessionId: Id; hostId: Id; title: string; status: string }
+  | {
+      type: "terminal";
+      id: Id;
+      sessionId: Id;
+      hostId: Id;
+      title: string;
+      status: string;
+      initialOutput: string;
+    }
   | {
       type: "layout";
       id: Id;
@@ -223,6 +231,11 @@ type Tab =
 
 type Selection = { type: "host"; id: Id } | { type: "folder"; id: Id };
 type EditorMode = "host" | "folder" | "new-host" | "new-folder" | null;
+
+type StartSession = {
+  sessionId: Id;
+  initialOutput: string;
+};
 type LayoutMode = "grid" | "main";
 type InspectorSource = "details" | "terminal" | "layout";
 
@@ -530,22 +543,23 @@ function App() {
 
   async function openTerminal(host: HostView) {
     try {
-      const sessionId = await invoke<Id>("start_ssh_session", {
+      const session = await invoke<StartSession>("start_ssh_session", {
         hostId: host.id,
         cols: 100,
         rows: 28,
       });
       const tab: Tab = {
         type: "terminal",
-        id: sessionId,
-        sessionId,
+        id: session.sessionId,
+        sessionId: session.sessionId,
         hostId: host.id,
         title: host.displayName,
         status: "running",
+        initialOutput: session.initialOutput,
       };
       setTabs((current) => [...current, tab]);
-      setTerminalOrder((current) => [...current, sessionId]);
-      setActiveTabId(sessionId);
+      setTerminalOrder((current) => [...current, session.sessionId]);
+      setActiveTabId(session.sessionId);
       setStatus(`Connected: ${host.path}`);
     } catch (err) {
       setStatus(String(err));
@@ -988,7 +1002,7 @@ function App() {
     }
     setActionsPane((current) => (current ? { ...current, runningActionId: action.id } : current));
     try {
-      const sessionId = await invoke<Id>("start_action_session", {
+      const session = await invoke<StartSession>("start_action_session", {
         hostId: actionsPane.hostId,
         actionId: action.id,
         cols: 100,
@@ -996,15 +1010,16 @@ function App() {
       });
       const tab: Tab = {
         type: "terminal",
-        id: sessionId,
-        sessionId,
+        id: session.sessionId,
+        sessionId: session.sessionId,
         hostId: host.id,
         title: `${host.displayName}: ${action.name}`,
         status: "running",
+        initialOutput: session.initialOutput,
       };
       setTabs((current) => [...current, tab]);
-      setTerminalOrder((current) => [...current, sessionId]);
-      setActiveTabId(sessionId);
+      setTerminalOrder((current) => [...current, session.sessionId]);
+      setActiveTabId(session.sessionId);
       setStatus(`Running action: ${action.name}`);
     } catch (err) {
       setStatus(String(err));
@@ -2655,6 +2670,7 @@ function TerminalPane({
   const activeRef = useRef(visible);
   const focusedRef = useRef(focused);
   const inputRef = useRef(onInput);
+  const initialOutputWrittenRef = useRef(false);
   const displayNotes = notes?.trim() || null;
   const exited = isTerminalExited(tab);
   const [findOpen, setFindOpen] = useState(false);
@@ -2794,9 +2810,18 @@ function TerminalPane({
     const onData = (event: Event) => terminal.write((event as CustomEvent<string>).detail);
     window.addEventListener(`terminal-data:${tab.sessionId}`, onData);
     window.addEventListener("resize", resizeTerminal);
+    const initialOutputTimer =
+      tab.initialOutput && !initialOutputWrittenRef.current
+        ? window.setTimeout(() => {
+            if (terminalRef.current !== terminal || initialOutputWrittenRef.current) return;
+            initialOutputWrittenRef.current = true;
+            terminal.write(tab.initialOutput);
+          }, 1000)
+        : null;
     resizeTerminal();
     if (focused) terminal.focus();
     return () => {
+      if (initialOutputTimer !== null) window.clearTimeout(initialOutputTimer);
       window.removeEventListener(`terminal-data:${tab.sessionId}`, onData);
       window.removeEventListener("resize", resizeTerminal);
       terminalRef.current = null;

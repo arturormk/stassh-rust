@@ -16,8 +16,9 @@ The longer-term project direction is documented in `docs/BLUEPRINT.md` and `docs
 
 The CLI and TUI are the most mature frontends today. `stassh-gui` now exists as
 an MVP desktop frontend with host browsing, editing, search, contextual
-inspection, diagnostics, and embedded OpenSSH terminal sessions. GUI action
-running and dry-run inspection surfaces still need deeper workflow coverage.
+inspection, diagnostics, action preview/run surfaces, embedded OpenSSH terminal
+sessions, and a deterministic simulation mode for screenshots and visual checks.
+GUI action authoring still needs deeper JSON-first workflow coverage.
 
 ## Current Status
 
@@ -54,17 +55,20 @@ Implemented now:
   GUI-managed PTYs, and OpenSSH-backed connections
 - GUI inspector panes for linked secrets, ordered jump-chain editing, and
   structured local/remote/dynamic forward editing
+- GUI action list, resolved dry-run preview, and action terminal-session running
 - GUI terminal layout tabs with equal-grid and main-pane modes, drag/drop
   terminal-to-layout composition, layout-local broadcast input, internal
   full-screen terminal panes, per-terminal find, and host-tree open-session
   indicators, plus visible exited-state badges for completed terminal sessions
+- GUI simulation mode with in-memory demo vault/local/secrets data, fake
+  encrypted secrets, and scripted terminal sessions for screenshots and visual
+  checks
 
 Not implemented yet:
 
 - encrypted vaults
 - synchronization journals
 - automatic identity discovery by scanning `~/.ssh` or `ssh-agent`
-- GUI action running, dry-run inspection, and JSON-first authoring support
 - action authoring helpers that preserve JSON-first workflow definitions
 
 ## Build And Test
@@ -109,12 +113,29 @@ npm install
 npm run tauri dev
 ```
 
+Launch the GUI with deterministic demo data and simulated SSH sessions for
+screenshots or visual checks:
+
+```bash
+cd apps/stassh-gui
+npm run tauri dev -- -- --simulation
+```
+
+Simulation mode keeps the demo vault, local config, and secrets store in memory.
+It does not read or write your real `~/.ssh/stassh` files, and terminal sessions
+use a small scripted shell instead of real OpenSSH. Simulated shells print a
+demo connection message and prompt automatically, then support simple commands
+such as `help`, `ls`, `pwd`, `cat`, `uptime`, `clear`, and `exit`. Fake
+encrypted demo secrets unlock with the simulation-only master password
+`simulation`.
+
 From the repository root, the helper script can launch a development build and
 optionally use copied demo data:
 
 ```bash
 ./run-stassh-gui-dev.sh
 ./run-stassh-gui-dev.sh --fixture
+./run-stassh-gui-dev.sh --simulation
 ```
 
 ## Output Formats
@@ -471,6 +492,8 @@ Current GUI capabilities:
 - assign or clear a host identity from local mappings
 - inspect linked secrets sets and explicitly reveal encrypted fields with the
   secrets master password
+- list common and host-specific actions, inspect resolved dry-run plans, and run
+  actions as terminal sessions
 - edit jump chains from a dedicated inspector pane with searchable host
   candidates, reorder/remove controls, self-jump prevention, and a `ProxyJump`
   summary
@@ -491,6 +514,8 @@ Current GUI capabilities:
 - show host notes in terminal headers when notes are available
 - confirm before closing a still-running terminal session
 - see host-tree indicators for how many SSH sessions are open for each host
+- launch `--simulation` to use in-memory corporate-style demo data, scripted
+  terminal sessions, and fake encrypted secrets for screenshot-safe demos
 
 The GUI host tree is a persistent navigator, not a batch launcher. Batch host
 selection remains a TUI workflow; in the GUI, open multiple hosts by
@@ -502,8 +527,9 @@ does not persist layouts across restart yet.
 
 Known GUI polish work:
 
-- add stronger action-running, dry-run inspection, and JSON-first authoring support
-- broaden manual and screenshot regression coverage for terminal layouts
+- add stronger JSON-first action authoring support
+- automate screenshot regression coverage for terminal layouts using simulation
+  mode as the deterministic data/session source
 
 ## Duplicate Host Reports
 

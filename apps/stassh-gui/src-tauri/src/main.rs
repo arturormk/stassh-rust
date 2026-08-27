@@ -10,18 +10,20 @@ use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system}
 use serde::{Deserialize, Serialize};
 use stassh_core::{
     ActionDefinition, AddFolder, AddHost, ForwardDefinition, HostSelector, LocalConfig,
-    ResolvedActionPlan, ResolvedLocalCommand, SecretField, SecretsStore, TempOpenSshConfig,
-    UpdateHost, Vault, ensure_home_stassh_permissions, load_local_config, load_secrets, load_vault,
-    local_config_path, parse_prepare_env, prepare_openssh_command, resolve_action_local_prepare,
-    resolve_action_plan, save_vault, secrets_path, vault_path,
+    ResolvedActionPlan, ResolvedLocalCommand, SecretField, SecretsStore, SimulatedShell,
+    TempOpenSshConfig, UpdateHost, Vault, demo_workspace, ensure_home_stassh_permissions,
+    load_local_config, load_secrets, load_vault, local_config_path, parse_prepare_env,
+    prepare_openssh_command, resolve_action_local_prepare, resolve_action_plan, save_vault,
+    secrets_path, vault_path,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 use zeroize::Zeroize;
 
 fn main() {
+    let simulation = std::env::args_os().any(|arg| arg == "--simulation");
     tauri::Builder::default()
-        .manage(AppState::default())
+        .manage(AppState::new(simulation))
         .invoke_handler(tauri::generate_handler![
             load_workspace,
             reload_workspace,
@@ -55,13 +57,30 @@ fn main() {
         .expect("failed to run stassh-gui");
 }
 
-#[derive(Default)]
 struct AppState {
+    simulation: bool,
     workspace: Mutex<Option<Workspace>>,
     sessions: Mutex<HashMap<Uuid, Session>>,
 }
 
+impl AppState {
+    fn new(simulation: bool) -> Self {
+        Self {
+            simulation,
+            workspace: Mutex::new(None),
+            sessions: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkspaceSource {
+    Files,
+    Simulation,
+}
+
 struct Workspace {
+    source: WorkspaceSource,
     vault_path: PathBuf,
     local_config_path: PathBuf,
     secrets_path: PathBuf,
@@ -70,13 +89,22 @@ struct Workspace {
     secrets_store: Option<SecretsStore>,
 }
 
-struct Session {
+enum Session {
+    Real(RealSession),
+    Simulated(SimulatedSession),
+}
+
+struct RealSession {
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn Child + Send + Sync>,
     local_child: Option<ProcessChild>,
     cleanup: Vec<ResolvedLocalCommand>,
     _temp_config: Option<TempOpenSshConfig>,
+}
+
+struct SimulatedSession {
+    shell: SimulatedShell,
 }
 
 #[derive(Debug, Serialize)]
@@ -241,6 +269,13 @@ struct SessionExit {
     message: String,
 }
 
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct StartSessionView {
+    session_id: Uuid,
+    initial_output: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct HostInput {
@@ -284,12 +319,26 @@ fn load_workspace_from_paths(
     };
 
     Ok(Workspace {
+        source: WorkspaceSource::Files,
         vault_path,
         local_config_path,
         secrets_path,
         vault,
         local_config,
         secrets_store,
+    })
+}
+
+fn load_simulation_workspace() -> Result<Workspace, String> {
+    let workspace = demo_workspace().map_err(error_message)?;
+    Ok(Workspace {
+        source: WorkspaceSource::Simulation,
+        vault_path: PathBuf::from("simulation://vault.json"),
+        local_config_path: PathBuf::from("simulation://local.json"),
+        secrets_path: PathBuf::from("simulation://secrets.json"),
+        vault: workspace.vault,
+        local_config: workspace.local_config,
+        secrets_store: Some(workspace.secrets_store),
     })
 }
 
@@ -318,9 +367,9 @@ fn snapshot(workspace: &Workspace) -> WorkspaceSnapshot {
         secrets_path: workspace.secrets_path.display().to_string(),
         folders,
         hosts: host_views(&workspace.vault),
-        identities: identity_views(&workspace.local_config),
+        identities: identity_views(&workspace.local_config, workspace.source),
         secrets_available: workspace.secrets_store.is_some(),
-        diagnostics: diagnostics(&workspace.vault, &workspace.local_config),
+        diagnostics: diagnostics(&workspace.vault, &workspace.local_config, workspace.source),
     }
 }
 
@@ -347,7 +396,7 @@ fn host_views(vault: &Vault) -> Vec<HostView> {
         .collect()
 }
 
-fn identity_views(local_config: &LocalConfig) -> Vec<IdentityView> {
+fn identity_views(local_config: &LocalConfig, source: WorkspaceSource) -> Vec<IdentityView> {
     local_config
         .identity_mappings
         .iter()
@@ -355,12 +404,16 @@ fn identity_views(local_config: &LocalConfig) -> Vec<IdentityView> {
             fingerprint: mapping.fingerprint.clone(),
             path: mapping.path.display().to_string(),
             preferred_name: mapping.preferred_name.clone(),
-            exists: mapping.path.exists(),
+            exists: source == WorkspaceSource::Simulation || mapping.path.exists(),
         })
         .collect()
 }
 
-fn diagnostics(vault: &Vault, local_config: &LocalConfig) -> Vec<DiagnosticView> {
+fn diagnostics(
+    vault: &Vault,
+    local_config: &LocalConfig,
+    source: WorkspaceSource,
+) -> Vec<DiagnosticView> {
     let mut diagnostics = Vec::new();
     for group in vault.duplicate_hosts() {
         diagnostics.push(DiagnosticView {
@@ -394,7 +447,7 @@ fn diagnostics(vault: &Vault, local_config: &LocalConfig) -> Vec<DiagnosticView>
         }
     }
     for mapping in &local_config.identity_mappings {
-        if !mapping.path.exists() {
+        if source != WorkspaceSource::Simulation && !mapping.path.exists() {
             diagnostics.push(DiagnosticView {
                 severity: "warning",
                 message: format!("identity file missing: {}", mapping.path.display()),
@@ -604,14 +657,21 @@ fn display_local_command(command: &ResolvedLocalCommand) -> String {
     parts.join(" ")
 }
 
-fn cleanup_session(mut session: Session) {
-    let _ = session.child.kill();
-    if let Some(mut child) = session.local_child {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-    for command in &session.cleanup {
-        let _ = local_command(command).status();
+fn cleanup_session(session: Session) {
+    match session {
+        Session::Real(mut session) => {
+            let _ = session.child.kill();
+            if let Some(mut child) = session.local_child {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            for command in &session.cleanup {
+                let _ = local_command(command).status();
+            }
+        }
+        Session::Simulated(mut session) => {
+            let _ = session.shell.close();
+        }
     }
 }
 
@@ -645,6 +705,11 @@ fn mutate_vault(
     let workspace = guard
         .as_mut()
         .ok_or_else(|| "workspace is not loaded".to_string())?;
+    if workspace.source == WorkspaceSource::Simulation {
+        f(&mut workspace.vault)?;
+        workspace.vault.validate().map_err(error_message)?;
+        return Ok(snapshot(workspace));
+    }
     let mut vault = load_vault(&workspace.vault_path).map_err(error_message)?;
     f(&mut vault)?;
     save_vault(&workspace.vault_path, &vault).map_err(error_message)?;
@@ -661,7 +726,11 @@ fn mutate_vault(
 
 #[tauri::command]
 fn load_workspace(state: State<'_, AppState>) -> Result<WorkspaceSnapshot, String> {
-    let workspace = load_workspace_from_paths(None, None, None)?;
+    let workspace = if state.simulation {
+        load_simulation_workspace()?
+    } else {
+        load_workspace_from_paths(None, None, None)?
+    };
     let snapshot = snapshot(&workspace);
     *state.workspace.lock().map_err(error_message)? = Some(workspace);
     Ok(snapshot)
@@ -674,11 +743,15 @@ fn reload_workspace(state: State<'_, AppState>) -> Result<WorkspaceSnapshot, Str
         drop(guard);
         return load_workspace(state);
     };
-    let workspace = load_workspace_from_paths(
-        Some(current.vault_path.clone()),
-        Some(current.local_config_path.clone()),
-        Some(current.secrets_path.clone()),
-    )?;
+    let workspace = if current.source == WorkspaceSource::Simulation {
+        load_simulation_workspace()?
+    } else {
+        load_workspace_from_paths(
+            Some(current.vault_path.clone()),
+            Some(current.local_config_path.clone()),
+            Some(current.secrets_path.clone()),
+        )?
+    };
     let snapshot = snapshot(&workspace);
     *guard = Some(workspace);
     Ok(snapshot)
@@ -744,7 +817,7 @@ fn host_details(host_id: Uuid, state: State<'_, AppState>) -> Result<HostDetails
                 })
                 .collect(),
             ssh_command: ssh.render_for_display(),
-            diagnostics: diagnostics(&workspace.vault, &workspace.local_config)
+            diagnostics: diagnostics(&workspace.vault, &workspace.local_config, workspace.source)
                 .into_iter()
                 .filter(|diagnostic| diagnostic.host_id == Some(host_id))
                 .collect(),
@@ -1067,7 +1140,18 @@ fn start_ssh_session(
     rows: u16,
     app: AppHandle,
     state: State<'_, AppState>,
-) -> Result<Uuid, String> {
+) -> Result<StartSessionView, String> {
+    if state.simulation {
+        let shell = workspace_with_state(&state, |workspace| {
+            let resolved = workspace
+                .vault
+                .resolve_host(HostSelector::Id(host_id))
+                .map_err(error_message)?;
+            Ok(SimulatedShell::for_host(&resolved))
+        })?;
+        return start_simulated_session(shell, None, app, &state);
+    }
+
     let (program, args, temp_config) = workspace_with_state(&state, |workspace| {
         let resolved = workspace
             .vault
@@ -1099,7 +1183,27 @@ fn start_action_session(
     rows: u16,
     app: AppHandle,
     state: State<'_, AppState>,
-) -> Result<Uuid, String> {
+) -> Result<StartSessionView, String> {
+    if state.simulation {
+        let (shell, action_banner) = workspace_with_state(&state, |workspace| {
+            let resolved = workspace
+                .vault
+                .resolve_host(HostSelector::Id(host_id))
+                .map_err(error_message)?;
+            let action = action_by_id(workspace, host_id, action_id)?;
+            let mut banner = format!("Running simulated action: {}\r\n", action.name);
+            if let Some(remote_command) = &action.remote_command {
+                banner.push_str(&format!("remote command: {remote_command}\r\n"));
+                banner.push_str(&simulated_remote_command_output(remote_command));
+            }
+            if action.local_launch.is_some() {
+                banner.push_str("local launch skipped in simulation mode\r\n");
+            }
+            Ok((SimulatedShell::for_host(&resolved), banner))
+        })?;
+        return start_simulated_session(shell, Some(action_banner), app, &state);
+    }
+
     let plan = workspace_with_state(&state, |workspace| {
         let resolved = workspace
             .vault
@@ -1127,6 +1231,43 @@ fn start_action_session(
     )
 }
 
+fn start_simulated_session(
+    shell: SimulatedShell,
+    prelude: Option<String>,
+    _app: AppHandle,
+    state: &State<'_, AppState>,
+) -> Result<StartSessionView, String> {
+    let session_id = Uuid::new_v4();
+    let mut output = String::new();
+    if let Some(prelude) = prelude {
+        output.push_str(&prelude);
+    }
+    output.push_str(&shell.banner());
+    state
+        .sessions
+        .lock()
+        .map_err(error_message)?
+        .insert(session_id, Session::Simulated(SimulatedSession { shell }));
+    Ok(StartSessionView {
+        session_id,
+        initial_output: output,
+    })
+}
+
+fn simulated_remote_command_output(command: &str) -> String {
+    if command.contains("df -h") {
+        "Filesystem      Size  Used Avail Use% Mounted on\r\n/dev/sim-root    80G   43G   34G  57% /\r\n/dev/sim-data   250G  121G  118G  51% /srv\r\n"
+            .to_string()
+    } else if command.contains("tail") && command.contains("nginx") {
+        "2026/08/27 09:41:02 [warn] upstream response time exceeded simulation threshold\r\n2026/08/27 09:42:18 [info] worker process recycled cleanly\r\n"
+            .to_string()
+    } else if command.contains("dashboard") {
+        "dashboard tunnel ready\r\n".to_string()
+    } else {
+        "simulated command completed successfully\r\n".to_string()
+    }
+}
+
 fn start_terminal_session(
     program: OsString,
     args: Vec<OsString>,
@@ -1137,7 +1278,7 @@ fn start_terminal_session(
     rows: u16,
     app: AppHandle,
     state: &State<'_, AppState>,
-) -> Result<Uuid, String> {
+) -> Result<StartSessionView, String> {
     let session_id = Uuid::new_v4();
     let pty = native_pty_system();
     let pair = pty
@@ -1166,14 +1307,14 @@ fn start_terminal_session(
     ));
     state.sessions.lock().map_err(error_message)?.insert(
         session_id,
-        Session {
+        Session::Real(RealSession {
             master: pair.master,
             writer: writer.clone(),
             child,
             local_child,
             cleanup,
             _temp_config: temp_config,
-        },
+        }),
     );
 
     thread::spawn(move || {
@@ -1208,28 +1349,66 @@ fn start_terminal_session(
         );
     });
 
-    Ok(session_id)
+    Ok(StartSessionView {
+        session_id,
+        initial_output: String::new(),
+    })
 }
 
 #[tauri::command]
 fn write_terminal(
     session_id: Uuid,
     data: String,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let writer = {
-        let sessions = state.sessions.lock().map_err(error_message)?;
-        sessions
-            .get(&session_id)
-            .ok_or_else(|| format!("session not found: {session_id}"))?
-            .writer
-            .clone()
+    let (writer, close_after_write) = {
+        let mut sessions = state.sessions.lock().map_err(error_message)?;
+        let session = sessions
+            .get_mut(&session_id)
+            .ok_or_else(|| format!("session not found: {session_id}"))?;
+        match session {
+            Session::Real(session) => (Some(session.writer.clone()), false),
+            Session::Simulated(session) => {
+                let output = session.shell.handle_input(&data);
+                let closed = output.closed;
+                if !output.data.is_empty() {
+                    app.emit(
+                        "session-output",
+                        SessionOutput {
+                            session_id,
+                            data: output.data,
+                        },
+                    )
+                    .map_err(error_message)?;
+                }
+                (None, closed)
+            }
+        }
     };
-    writer
-        .lock()
-        .map_err(error_message)?
-        .write_all(data.as_bytes())
-        .map_err(error_message)
+    if let Some(writer) = writer {
+        writer
+            .lock()
+            .map_err(error_message)?
+            .write_all(data.as_bytes())
+            .map_err(error_message)?;
+    }
+    if close_after_write {
+        state
+            .sessions
+            .lock()
+            .map_err(error_message)?
+            .remove(&session_id);
+        app.emit(
+            "session-exit",
+            SessionExit {
+                session_id,
+                message: "session closed".to_string(),
+            },
+        )
+        .map_err(error_message)?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1243,15 +1422,21 @@ fn resize_terminal(
     let session = sessions
         .get(&session_id)
         .ok_or_else(|| format!("session not found: {session_id}"))?;
-    session
-        .master
-        .resize(PtySize {
-            rows: rows.max(8),
-            cols: cols.max(20),
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .map_err(error_message)
+    match session {
+        Session::Real(session) => session
+            .master
+            .resize(PtySize {
+                rows: rows.max(8),
+                cols: cols.max(20),
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(error_message),
+        Session::Simulated(_) => {
+            let _ = (cols, rows);
+            Ok(())
+        }
+    }
 }
 
 #[tauri::command]
@@ -1313,6 +1498,7 @@ mod tests {
 
         (
             Workspace {
+                source: WorkspaceSource::Files,
                 vault_path: "vault.json".into(),
                 local_config_path: "local.json".into(),
                 secrets_path: "secrets.json".into(),
@@ -1373,6 +1559,7 @@ mod tests {
 
         (
             Workspace {
+                source: WorkspaceSource::Files,
                 vault_path: "vault.json".into(),
                 local_config_path: "local.json".into(),
                 secrets_path: "secrets.json".into(),
@@ -1418,6 +1605,40 @@ mod tests {
         assert!(view.ssh_command.contains("df -h"));
         assert_eq!(view.local_prepare, None);
         assert_eq!(view.local_launch, None);
+    }
+
+    #[test]
+    fn simulation_workspace_snapshot_uses_virtual_paths_and_mapped_identities_exist() {
+        let workspace = load_simulation_workspace().unwrap();
+        let snapshot = snapshot(&workspace);
+
+        assert_eq!(snapshot.vault_path, "simulation://vault.json");
+        assert!(
+            snapshot
+                .hosts
+                .iter()
+                .any(|host| host.display_name == "web-prod-01")
+        );
+        assert!(snapshot.identities.iter().all(|identity| identity.exists));
+        assert!(
+            snapshot
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("missing identity mapping"))
+        );
+    }
+
+    #[test]
+    fn simulated_remote_command_output_is_stable_for_common_actions() {
+        assert!(simulated_remote_command_output("df -h").contains("/dev/sim-root"));
+        assert!(
+            simulated_remote_command_output("tail -n 80 /var/log/nginx/error.log")
+                .contains("upstream response time exceeded")
+        );
+        assert!(
+            simulated_remote_command_output("echo dashboard tunnel ready")
+                .contains("dashboard tunnel ready")
+        );
     }
 
     #[test]

@@ -7,6 +7,7 @@ pub mod local;
 pub mod model;
 pub mod openssh;
 pub mod secrets;
+pub mod simulation;
 pub mod storage;
 
 pub use action::{
@@ -41,5 +42,9 @@ pub use openssh::{OpenSshCommand, OpenSshConfig, TempOpenSshConfig};
 pub use secrets::{
     EncryptedSecret, SecretField, SecretPlaintext, SecretRecordKind, SecretSet, SecretsCrypto,
     SecretsError, SecretsKey, SecretsStore, load_secrets, save_secrets,
+};
+pub use simulation::{
+    SIMULATION_MASTER_PASSWORD, SimulatedOutput, SimulatedShell, SimulationWorkspace,
+    demo_workspace,
 };
 pub use storage::{load_vault, save_vault};

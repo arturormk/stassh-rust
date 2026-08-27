@@ -63,14 +63,18 @@
 - Add Inspector panes for linked secrets, ordered jump-chain editing, and
   structured local/remote/dynamic forward editing.
 - Add focused terminal find and running-session close confirmation.
+- Add action listing, resolved dry-run preview, and action terminal-session
+  running.
+- Add GUI simulation mode with deterministic demo data, fake encrypted secrets,
+  and scripted terminal sessions for screenshots and visual checks.
 - Keep the GUI host tree as a persistent navigator; batch host selection remains
   a TUI workflow.
 - Keep terminal byte streaming out of heavyweight frontend state.
 
 Remaining GUI polish:
 
-- Add stronger action-running, dry-run inspection, and JSON-first authoring support.
-- Add visual/manual regression coverage for terminal layouts.
+- Add stronger JSON-first action authoring support.
+- Add automated visual regression coverage for terminal layouts.
 
 ## Milestone 8: Actions And Capabilities
 

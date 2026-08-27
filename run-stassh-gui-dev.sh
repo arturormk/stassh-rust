@@ -8,6 +8,7 @@ readonly DEFAULT_LOG_DIR="$DEV_DIR/logs"
 readonly VITE_URL="http://127.0.0.1:1420"
 
 USE_FIXTURE=0
+SIMULATION=0
 NO_INSTALL=0
 HEADLESS=0
 LOG_DIR=""
@@ -23,6 +24,7 @@ group when interrupted.
 
 Options:
   --fixture          Use copied demo vault/local files under .stassh-gui-dev/.
+  --simulation       Use in-memory demo data and simulated SSH sessions.
   --no-install       Do not run npm ci when node_modules is missing.
   --log-dir <path>   Write combined dev output to a timestamped log file.
   --headless         Run through xvfb-run -a for CI/smoke checks.
@@ -129,11 +131,18 @@ print_launch_report() {
   info "  Vite URL:       $VITE_URL"
   info "  GUI dir:        $GUI_DIR"
 
-  if ((USE_FIXTURE)); then
+  if ((SIMULATION)); then
+    info "  mode:           simulation"
+    info "  vault:          simulation://vault.json"
+    info "  local config:   simulation://local.json"
+    info "  secrets path:   simulation://secrets.json"
+  elif ((USE_FIXTURE)); then
+    info "  mode:           copied fixture"
     info "  vault:          $STASSH_VAULT"
     info "  local config:   $STASSH_LOCAL_CONFIG"
     info "  secrets path:   $STASSH_SECRETS"
   else
+    info "  mode:           default"
     info "  vault:          default stassh path resolution"
     info "  local config:   default stassh path resolution"
     info "  secrets path:   default stassh path resolution"
@@ -167,6 +176,10 @@ cleanup() {
 run_dev() {
   local -a command=(npm run tauri -- dev)
 
+  if ((SIMULATION)); then
+    command+=(-- -- --simulation)
+  fi
+
   if ((HEADLESS)); then
     command=(xvfb-run -a "${command[@]}")
   fi
@@ -186,6 +199,9 @@ parse_args() {
     case "$1" in
       --fixture)
         USE_FIXTURE=1
+        ;;
+      --simulation)
+        SIMULATION=1
         ;;
       --no-install)
         NO_INSTALL=1
@@ -214,6 +230,10 @@ parse_args() {
 
   if ((USE_FIXTURE)) && [[ -z "$LOG_DIR" ]]; then
     LOG_DIR="$DEFAULT_LOG_DIR"
+  fi
+
+  if ((USE_FIXTURE)) && ((SIMULATION)); then
+    die "--fixture and --simulation cannot be used together."
   fi
 }
 

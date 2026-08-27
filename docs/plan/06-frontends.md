@@ -58,6 +58,7 @@ Current MVP features:
   and layouts
 - diagnostics and generated OpenSSH preview
 - linked secrets inspection with explicit reveal
+- action list, dry-run preview, and action terminal-session running
 - ordered jump-chain editing through a dedicated inspector pane
 - structured local, remote, and dynamic forward editing through a dedicated
   inspector pane and host editor
@@ -70,6 +71,7 @@ Current MVP features:
 - running-session close confirmation
 - open-session indicators in the host tree
 - exited-session indicators in terminal tabs and terminal headers
+- GUI simulation mode with deterministic demo data and scripted SSH sessions
 - integrated PTY terminal through xterm.js
 - connect via OpenSSH
 
@@ -85,8 +87,9 @@ keyboard handling, state management, and performance rather than fashion.
 
 Near-term GUI polish:
 
-- add richer action-running, dry-run inspection, and JSON-first authoring support
-- add screenshot or equivalent visual regression checks for terminal layouts
+- add richer JSON-first action authoring support
+- add automated screenshot or equivalent visual regression checks for terminal
+  layouts using simulation mode
 
 ## GUI Terminal Path
 
@@ -107,6 +110,11 @@ Terminal tabs and layout tabs are GUI runtime state. Layouts are views over
 existing terminal sessions, not separate SSH sessions, and they should remain
 outside the portable vault unless a future cross-frontend persistence model is
 designed.
+
+Simulation mode is a GUI development and documentation aid. It loads
+deterministic in-memory demo data from core, exposes virtual `simulation://`
+paths, and drives terminal panes with scripted shell output instead of real
+OpenSSH. It should remain clearly separated from real connection execution.
 
 ## Keyboard And Actions
 
