@@ -18,8 +18,8 @@ Inspector, and open embedded OpenSSH terminal sessions. Its terminal workspace
 already supports independent terminal tabs, independent `Layout {n}` tabs over
 existing sessions, equal-grid and main-pane layouts, drag/drop layout
 composition, layout-local broadcast input, host-tree open-session indicators,
-per-terminal find, host notes in terminal headers, and internal full-screen
-terminal panes.
+per-terminal find, exited-session badges in tabs and terminal headers, host
+notes in terminal headers, and internal full-screen terminal panes.
 
 The project may and should diverge from this blueprint when implementation
 experience, platform constraints, performance testing, security review, or

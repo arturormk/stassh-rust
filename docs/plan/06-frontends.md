@@ -69,6 +69,7 @@ Current MVP features:
 - internal full-screen terminal panes
 - running-session close confirmation
 - open-session indicators in the host tree
+- exited-session indicators in terminal tabs and terminal headers
 - integrated PTY terminal through xterm.js
 - connect via OpenSSH
 

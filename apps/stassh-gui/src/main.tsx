@@ -260,6 +260,10 @@ function clampSidebarWidth(width: number) {
   return Math.min(maxSidebarWidth, Math.max(minSidebarWidth, width));
 }
 
+function isTerminalExited(tab: Extract<Tab, { type: "terminal" }>) {
+  return tab.status !== "running";
+}
+
 function App() {
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -1212,7 +1216,8 @@ function App() {
                   draggingTabId === tab.id ? "dragging" : ""
                 } ${tabDropTargetId === tab.id ? "dropTarget" : ""} ${
                   tabAddTargetId === tab.id ? "addTarget" : ""
-                }`}
+                } ${tab.type === "terminal" && isTerminalExited(tab) ? "terminalExited" : ""}`}
+                title={tab.type === "terminal" ? `${tab.title} - ${tab.status}` : tab.title}
                 draggable
                 onClick={() => setActiveTabId(tab.id)}
                 onDragStart={(event) => {
@@ -1281,6 +1286,11 @@ function App() {
               >
                 {tab.type === "terminal" ? <TerminalSquare size={15} /> : <Monitor size={15} />}
                 <span>{tab.title}</span>
+                {tab.type === "terminal" && isTerminalExited(tab) && (
+                  <span className="tabExitBadge" title={tab.status}>
+                    Exited
+                  </span>
+                )}
                 <X
                   size={14}
                   onClick={(event) => {
@@ -2646,6 +2656,7 @@ function TerminalPane({
   const focusedRef = useRef(focused);
   const inputRef = useRef(onInput);
   const displayNotes = notes?.trim() || null;
+  const exited = isTerminalExited(tab);
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");
   const [findCaseSensitive, setFindCaseSensitive] = useState(false);
@@ -2861,7 +2872,7 @@ function TerminalPane({
               <Search size={13} />
             </button>
           ))}
-        <small>{tab.status}</small>
+        <small className={`terminalStateBadge ${exited ? "exited" : "running"}`}>{tab.status}</small>
         {showPaneControls && (
           <div className="paneActions">
             <button title="Use as main pane" onClick={onMakeMain}>

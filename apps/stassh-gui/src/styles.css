@@ -317,6 +317,35 @@ code {
   background: #15181d;
 }
 
+.tabbar button.terminalExited {
+  border-color: #704743;
+  color: #ffd8d2;
+  background: #241c20;
+}
+
+.tabbar button.terminalExited.active {
+  border-color: #d46a5d;
+  background: #1c171a;
+  box-shadow: inset 0 -3px 0 #d46a5d;
+}
+
+.tabbar button.terminalExited svg:first-child {
+  color: #f0a095;
+}
+
+.tabExitBadge {
+  flex: 0 0 auto;
+  border: 1px solid #8f4c46;
+  border-radius: 999px;
+  color: #ffd8d2;
+  background: #4a2425;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 3px 6px;
+  text-transform: uppercase;
+}
+
 .tabbar button[draggable="true"] {
   cursor: grab;
 }
@@ -931,6 +960,29 @@ code {
 .terminalStatus small {
   color: #94a0ad;
   text-overflow: ellipsis;
+}
+
+.terminalStateBadge {
+  max-width: 190px;
+  border: 1px solid #34404c;
+  border-radius: 999px;
+  background: #18202a;
+  font-weight: 700;
+  line-height: 1;
+  padding: 5px 8px;
+}
+
+.terminalStateBadge.running {
+  color: #b8d9c3;
+  border-color: #31583f;
+  background: #15241b;
+}
+
+.terminalStateBadge.exited {
+  color: #ffd8d2;
+  border-color: #9c4f48;
+  background: #4a2425;
+  box-shadow: 0 0 0 1px rgba(212, 106, 93, 0.24);
 }
 
 .terminalFind {

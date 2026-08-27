@@ -57,7 +57,7 @@ Implemented now:
 - GUI terminal layout tabs with equal-grid and main-pane modes, drag/drop
   terminal-to-layout composition, layout-local broadcast input, internal
   full-screen terminal panes, per-terminal find, and host-tree open-session
-  indicators
+  indicators, plus visible exited-state badges for completed terminal sessions
 
 Not implemented yet:
 
