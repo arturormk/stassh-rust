@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
@@ -33,6 +31,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { invoke, listen } from "./tauri";
 import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
 
@@ -1151,8 +1150,12 @@ function App() {
   const inspectorWidth = inspectorExpanded ? 340 : 0;
 
   return (
-    <div className="appShell" style={{ gridTemplateColumns: `${sidebarWidth}px 8px minmax(380px, 1fr) ${inspectorWidth}px` }}>
-      <aside className="sidebar">
+    <div
+      className="appShell"
+      data-testid="app-shell"
+      style={{ gridTemplateColumns: `${sidebarWidth}px 8px minmax(380px, 1fr) ${inspectorWidth}px` }}
+    >
+      <aside className="sidebar" data-testid="sidebar">
         <div className="sidebarHeader">
           <div className="searchBox">
             <Search size={15} />
@@ -1223,10 +1226,12 @@ function App() {
 
       <section className="workspace">
         {tabs.length > 0 && (
-          <div className="tabbar">
+          <div className="tabbar" data-testid="tabbar">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
+                data-testid={`tab-${tab.title}`}
+                data-tab-id={tab.id}
                 className={`${tab.id === activeTab?.id ? "active" : ""} ${
                   draggingTabId === tab.id ? "dragging" : ""
                 } ${tabDropTargetId === tab.id ? "dropTarget" : ""} ${
@@ -1317,6 +1322,7 @@ function App() {
             ))}
             <button
               className="tabbarAction"
+              data-testid="create-layout-tab"
               title="Create layout from open terminals"
               onClick={createLayoutTab}
               disabled={!tabs.some((tab) => tab.type === "terminal")}
@@ -1518,6 +1524,7 @@ function InventoryTree(props: {
         row.kind === "folder" ? (
           <div
             key={row.folder.id}
+            data-testid={`folder-row-${row.folder.name}`}
             className={`treeRow ${selection?.type === "folder" && selection.id === row.folder.id ? "active" : ""} ${
               dropTargetFolderId === row.folder.id ? "dropTarget" : ""
             } ${
@@ -1542,6 +1549,7 @@ function InventoryTree(props: {
         ) : (
           <div
             key={row.host.id}
+            data-testid={`host-row-${row.host.displayName}`}
             className={`treeRow host ${selection?.type === "host" && selection.id === row.host.id ? "active" : ""} ${
               draggingHostIds.includes(row.host.id) ? "dragging" : ""
             }
@@ -2553,18 +2561,23 @@ function TerminalStage(props: {
   const layoutSessions = terminalTabs.filter((tab) => layout?.sessionIds.includes(tab.sessionId));
 
   return (
-    <div className={`tabPanel terminalStagePanel ${visibleSessionIds.length || props.fullscreenSessionId ? "active" : ""}`}>
+    <div
+      className={`tabPanel terminalStagePanel ${visibleSessionIds.length || props.fullscreenSessionId ? "active" : ""}`}
+      data-testid="terminal-stage-panel"
+    >
       {layout && (
-        <div className="layoutToolbar">
+        <div className="layoutToolbar" data-testid="layout-toolbar">
           <div className="layoutSegment">
             <button
               className={layout.mode === "grid" ? "active" : ""}
+              data-testid="layout-grid-mode"
               onClick={() => props.onUpdateLayout(layout.id, { mode: "grid" })}
             >
               Grid
             </button>
             <button
               className={layout.mode === "main" ? "active" : ""}
+              data-testid="layout-main-mode"
               onClick={() => props.onUpdateLayout(layout.id, { mode: "main" })}
             >
               Main
@@ -2572,6 +2585,7 @@ function TerminalStage(props: {
           </div>
           <button
             className={`broadcastToggle ${layout.broadcastInput ? "active" : ""}`}
+            data-testid="layout-broadcast-toggle"
             aria-pressed={layout.broadcastInput}
             onClick={() => props.onUpdateLayout(layout.id, { broadcastInput: !layout.broadcastInput })}
           >
@@ -2580,7 +2594,7 @@ function TerminalStage(props: {
           <span>{layout.sessionIds.length} panes</span>
         </div>
       )}
-      <div className={`terminalStage ${modeClass}`} style={gridStyle}>
+      <div className={`terminalStage ${modeClass}`} data-testid="terminal-stage" style={gridStyle}>
         {terminalTabs.map((tab) => {
           const visible = visibleSessionSet.has(tab.sessionId);
           const focused = focusedSessionId === tab.sessionId;
@@ -2845,6 +2859,7 @@ function TerminalPane({
       className={`terminalPanel ${visible ? "active" : ""} ${focused ? "focused" : ""} ${
         fullscreen ? "fullscreen" : ""
       }`}
+      data-testid={`terminal-pane-${tab.title}`}
       style={style}
       onMouseDown={onFocus}
     >
@@ -2858,6 +2873,7 @@ function TerminalPane({
             <div className="terminalFind">
               <input
                 ref={searchInputRef}
+                data-testid={`terminal-find-input-${tab.title}`}
                 value={findQuery}
                 onChange={(event) => setFindQuery(event.target.value)}
                 onKeyDown={(event) => {
@@ -2893,7 +2909,12 @@ function TerminalPane({
               </button>
             </div>
           ) : (
-            <button className="terminalFindButton" title="Find" onClick={() => setFindOpen(true)}>
+            <button
+              className="terminalFindButton"
+              data-testid={`terminal-find-button-${tab.title}`}
+              title="Find"
+              onClick={() => setFindOpen(true)}
+            >
               <Search size={13} />
             </button>
           ))}
@@ -2910,6 +2931,7 @@ function TerminalPane({
         )}
         <button
           className="paneFullscreenButton"
+          data-testid={`terminal-fullscreen-button-${tab.title}`}
           title={fullscreen ? "Exit full screen" : "Full screen"}
           onClick={fullscreen ? onExitFullscreen : onEnterFullscreen}
         >

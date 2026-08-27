@@ -51,8 +51,9 @@ Cover user workflows:
 - diagnostics views with redaction
 - action execution
 
-The GUI should be checked with screenshots or equivalent visual tests where
-layout regressions are likely, especially around terminal grids, main-pane mode,
+The TUI should use deterministic ratatui buffer render checks for visual
+coverage. The GUI should use screenshots or equivalent visual tests where layout
+regressions are likely, especially around terminal grids, main-pane mode,
 full-screen terminal panes, tab reordering, and host-tree open-session
 indicators. Use GUI simulation mode as the default screenshot data source so
 captures do not depend on private vaults, live SSH hosts, or local key material.

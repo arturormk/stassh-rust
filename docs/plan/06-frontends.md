@@ -95,8 +95,8 @@ keyboard handling, state management, and performance rather than fashion.
 Future GUI polish:
 
 - add richer JSON-first action authoring support
-- add automated screenshot or equivalent visual regression checks for terminal
-  layouts using simulation mode
+- expand automated screenshot or equivalent visual regression checks for
+  terminal layouts using simulation mode
 
 ## GUI Terminal Path
 

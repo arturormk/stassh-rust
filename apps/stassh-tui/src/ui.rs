@@ -1218,6 +1218,10 @@ fn display_forward(forward: &stassh_core::ForwardDefinition) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::style::{Color, Modifier};
 
     #[test]
     fn scroll_offset_keeps_selected_row_visible() {
@@ -1300,6 +1304,99 @@ mod tests {
         assert_eq!(status_title(0, 1, StatusPageKey::CtrlG), "Status");
     }
 
+    #[test]
+    fn simulation_browse_render_matches_terminal_snapshot() {
+        let mut app = simulation_app();
+        app.show_diagnostics = true;
+        expand_folder(&mut app, "Production");
+        select_host(&mut app, "db-prod-01");
+
+        let snapshot = render_snapshot(&app, 100, 32);
+
+        assert_snapshot_contains(
+            &snapshot,
+            &[
+                "Hosts",
+                "[v] /",
+                "[v] Production",
+                "[ ] web-prod-01",
+                "Details",
+                "Path: Production/db-prod-01",
+                "Identity: unmapped: SHA256:sim-missing",
+                "Diagnostics",
+                "Status",
+            ],
+        );
+
+        let (x, y) = snapshot
+            .find_cell(">     [ ] db-prod-01")
+            .expect("selected row marker");
+        let cell = snapshot.cell(x, y);
+        assert_eq!(cell.bg, Color::Cyan);
+        assert_eq!(cell.fg, Color::Black);
+        assert!(cell.modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn simulation_action_palette_render_matches_terminal_snapshot() {
+        let mut app = simulation_app();
+        expand_folder(&mut app, "Production");
+        select_host(&mut app, "cache-prod-01");
+        app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::empty()))
+            .unwrap();
+
+        let snapshot = render_snapshot(&app, 100, 32);
+
+        assert_snapshot_contains(
+            &snapshot,
+            &[
+                "Actions",
+                "Host: Production/cache-prod-01",
+                "> Open service dashboard",
+                "Selected",
+                "Remote: echo dashboard tunnel ready",
+            ],
+        );
+    }
+
+    #[test]
+    fn simulation_secrets_render_masks_secret_fields() {
+        let mut app = simulation_app();
+        select_first_host_with_secrets(&mut app);
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::empty()))
+            .unwrap();
+
+        let snapshot = render_snapshot(&app, 100, 32);
+
+        assert_snapshot_contains(
+            &snapshot,
+            &[
+                "Secrets",
+                "Set:",
+                "[secret]",
+                "Enter reveal | h hide | Esc close",
+            ],
+        );
+        assert!(
+            !snapshot.text.contains("s3cr3t"),
+            "secret plaintext must not be rendered before reveal"
+        );
+    }
+
+    #[test]
+    fn simulation_small_screen_render_keeps_core_regions_visible() {
+        let app = simulation_app();
+
+        let snapshot = render_snapshot(&app, 72, 18);
+
+        assert_snapshot_contains(
+            &snapshot,
+            &["Hosts", "Details", "Status", "[v] /", "Production"],
+        );
+        assert_eq!(snapshot.lines.len(), 18);
+        assert!(snapshot.lines.iter().all(|line| line.chars().count() == 72));
+    }
+
     fn test_app() -> App {
         App::new(
             std::path::PathBuf::from("/tmp/vault.json"),
@@ -1312,5 +1409,119 @@ mod tests {
             false,
             StatusPageKey::F1,
         )
+    }
+
+    fn simulation_app() -> App {
+        let workspace = stassh_core::demo_workspace().unwrap();
+        App::new(
+            std::path::PathBuf::from("simulation://vault.json"),
+            std::path::PathBuf::from("simulation://local.json"),
+            std::path::PathBuf::from("simulation://secrets.json"),
+            workspace.vault,
+            workspace.local_config,
+            Some(workspace.secrets_store),
+            false,
+            true,
+            StatusPageKey::F1,
+        )
+    }
+
+    fn select_host(app: &mut App, label: &str) {
+        app.selected = app
+            .tree
+            .iter()
+            .position(|item| item.label == label)
+            .unwrap_or_else(|| panic!("simulation host {label:?}"));
+    }
+
+    fn select_first_host_with_secrets(app: &mut App) {
+        expand_folder(app, "Production");
+        app.selected = app
+            .tree
+            .iter()
+            .position(|item| {
+                matches!(item.kind, TreeItemKind::Host(host_id) if app
+                    .vault
+                    .host(host_id)
+                    .is_some_and(|host| host.secrets.is_some()))
+            })
+            .expect("simulation host with secrets");
+    }
+
+    fn expand_folder(app: &mut App, label: &str) {
+        app.selected = app
+            .tree
+            .iter()
+            .position(|item| item.label == label)
+            .unwrap_or_else(|| panic!("simulation folder {label:?}"));
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()))
+            .unwrap();
+    }
+
+    fn render_snapshot(app: &App, width: u16, height: u16) -> RenderSnapshot {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| draw_ui(frame, app)).unwrap();
+        RenderSnapshot::from_backend(terminal.backend())
+    }
+
+    fn assert_snapshot_contains(snapshot: &RenderSnapshot, values: &[&str]) {
+        for value in values {
+            assert!(
+                snapshot.text.contains(value),
+                "snapshot did not contain {value:?}\n{}",
+                snapshot.text
+            );
+        }
+    }
+
+    struct RenderSnapshot {
+        text: String,
+        lines: Vec<String>,
+        cells: Vec<Vec<RenderCell>>,
+    }
+
+    #[derive(Clone, Copy)]
+    struct RenderCell {
+        fg: Color,
+        bg: Color,
+        modifier: Modifier,
+    }
+
+    impl RenderSnapshot {
+        fn from_backend(backend: &TestBackend) -> Self {
+            let buffer = backend.buffer();
+            let area = buffer.area;
+            let mut lines = Vec::with_capacity(area.height as usize);
+            let mut cells = Vec::with_capacity(area.height as usize);
+            for y in 0..area.height {
+                let mut line = String::new();
+                let mut row = Vec::with_capacity(area.width as usize);
+                for x in 0..area.width {
+                    let cell = &buffer[(x, y)];
+                    line.push_str(cell.symbol());
+                    row.push(RenderCell {
+                        fg: cell.fg,
+                        bg: cell.bg,
+                        modifier: cell.modifier,
+                    });
+                }
+                lines.push(line);
+                cells.push(row);
+            }
+            let text = lines.join("\n");
+            Self { text, lines, cells }
+        }
+
+        fn find_cell(&self, value: &str) -> Option<(usize, usize)> {
+            self.lines
+                .iter()
+                .enumerate()
+                .find_map(|(y, line)| line.find(value).map(|x| (x, y)))
+        }
+
+        fn cell(&self, x: usize, y: usize) -> RenderCell {
+            self.cells[y][x]
+        }
     }
 }

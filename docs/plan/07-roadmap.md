@@ -76,6 +76,8 @@
   running.
 - Add GUI simulation mode with deterministic demo data, fake encrypted secrets,
   and scripted terminal sessions for screenshots and visual checks.
+- Add initial automated visual regression coverage for TUI simulation renders
+  and GUI terminal layouts.
 - Keep the GUI host tree as a persistent navigator; batch host selection remains
   a TUI workflow.
 - Keep terminal byte streaming out of heavyweight frontend state.
@@ -83,7 +85,8 @@
 Future GUI polish:
 
 - Add stronger JSON-first action authoring support.
-- Add automated visual regression coverage for terminal layouts.
+- Expand automated visual regression coverage for tab reordering, scrollback
+  preservation, and optional full Tauri headless smoke checks.
 - Keep the README screenshots in `examples/github-screenshot/` captured from
   `./run-stassh-tui-dev.sh --simulation` and
   `./run-stassh-gui-dev.sh --simulation`.

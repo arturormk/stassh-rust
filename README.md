@@ -98,6 +98,17 @@ Run tests:
 cargo test --workspace
 ```
 
+Run GUI visual regression tests:
+
+```bash
+cd apps/stassh-gui
+npm run test:visual
+```
+
+The visual suite uses Playwright with deterministic simulation data and
+committed screenshot baselines. If Playwright has not downloaded a browser on
+the local machine yet, run `npx playwright install chromium` once.
+
 Run the CLI from source:
 
 ```bash

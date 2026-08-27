@@ -12,16 +12,16 @@ Secrets. Keep it in the repo while there are open GUI items.
   config needs, and other relevant failure states.
 
 - Terminal layout regression coverage.
-  GUI simulation mode now provides the deterministic environment for this work:
-  in-memory demo data, screenshot-safe secrets, scripted terminal startup
-  prompts, and simple shell commands without real SSH hosts. Remaining work is
-  to add automated screenshot or equivalent visual checks that launch
-  `./run-stassh-gui-dev.sh --simulation` and exercise terminal layout tabs,
-  drag/drop layout composition, tab reordering, equal-grid and main-pane modes,
-  broadcast input, internal full-screen panes, focused terminal find, and
-  scrollback preservation. The committed screenshot pair in
-  `examples/github-screenshot/` is the manual baseline for this work; refresh it
-  with `./run-stassh-tui-dev.sh --simulation` and
+  Initial automated coverage exists. The TUI has deterministic ratatui buffer
+  render checks for simulation views, and the GUI has Playwright screenshot
+  checks for simulated terminal layout tabs, drag/drop layout composition,
+  equal-grid and main-pane modes, broadcast input, internal full-screen panes,
+  and focused terminal find. Remaining work is to add explicit tab-reordering
+  and scrollback-preservation checks, and optionally a full Tauri
+  `./run-stassh-gui-dev.sh --simulation --headless` smoke test if CI has stable
+  graphical dependencies. The committed screenshot pair in
+  `examples/github-screenshot/` remains the manual baseline for README images;
+  refresh it with `./run-stassh-tui-dev.sh --simulation` and
   `./run-stassh-gui-dev.sh --simulation` when the intended visual baseline
   changes.
 
