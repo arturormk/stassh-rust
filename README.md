@@ -17,7 +17,7 @@ The longer-term project direction is documented in `docs/BLUEPRINT.md` and `docs
 The CLI and TUI are the most mature frontends today. `stassh-gui` now exists as
 an MVP desktop frontend with host browsing, editing, search, contextual
 inspection, diagnostics, and embedded OpenSSH terminal sessions. GUI action
-running/editing surfaces still need deeper workflow coverage.
+running and dry-run inspection surfaces still need deeper workflow coverage.
 
 ## Current Status
 
@@ -52,6 +52,8 @@ Implemented now:
 - `stassh-gui` MVP with a Tauri desktop shell, host tree, search,
   contextual inspector/editor panel, embedded xterm.js terminal tabs,
   GUI-managed PTYs, and OpenSSH-backed connections
+- GUI inspector panes for linked secrets, ordered jump-chain editing, and
+  structured local/remote/dynamic forward editing
 - GUI terminal layout tabs with equal-grid and main-pane modes, drag/drop
   terminal-to-layout composition, layout-local broadcast input, internal
   full-screen terminal panes, per-terminal find, and host-tree open-session
@@ -62,8 +64,8 @@ Not implemented yet:
 - encrypted vaults
 - synchronization journals
 - automatic identity discovery by scanning `~/.ssh` or `ssh-agent`
-- GUI action running/editing surfaces
-- action editing commands and TUI action editors
+- GUI action running, dry-run inspection, and JSON-first authoring support
+- action authoring helpers that preserve JSON-first workflow definitions
 
 ## Build And Test
 
@@ -467,7 +469,13 @@ Current GUI capabilities:
 - create, edit, copy, delete, and move hosts
 - create, rename, move, and delete folders where allowed
 - assign or clear a host identity from local mappings
-- edit jump chains and local/remote/dynamic forwards
+- inspect linked secrets sets and explicitly reveal encrypted fields with the
+  secrets master password
+- edit jump chains from a dedicated inspector pane with searchable host
+  candidates, reorder/remove controls, self-jump prevention, and a `ProxyJump`
+  summary
+- edit local, remote, and dynamic forwards from a dedicated inspector pane or
+  host editor using structured fields and port validation
 - double-click or press Connect to open an embedded terminal session using the
   system `ssh`
 - keep multiple SSH sessions open as individual terminal tabs
@@ -484,13 +492,17 @@ Current GUI capabilities:
 - confirm before closing a still-running terminal session
 - see host-tree indicators for how many SSH sessions are open for each host
 
+The GUI host tree is a persistent navigator, not a batch launcher. Batch host
+selection remains a TUI workflow; in the GUI, open multiple hosts by
+double-clicking them or using Connect from the Inspector.
+
 The GUI currently stores session tabs, layouts, and terminal state only in
 frontend runtime state. It does not add GUI-only fields to `vault.json`, and it
 does not persist layouts across restart yet.
 
 Known GUI polish work:
 
-- add stronger action-running and action-editing surfaces
+- add stronger action-running, dry-run inspection, and JSON-first authoring support
 - broaden manual and screenshot regression coverage for terminal layouts
 
 ## Duplicate Host Reports

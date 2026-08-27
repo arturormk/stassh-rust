@@ -1,7 +1,7 @@
 # TODO-gui.md
 
 This file tracks remaining `stassh-gui` work that is not primarily about
-Secrets or Actions. Keep it in the repo while there are open GUI items.
+Secrets. Keep it in the repo while there are open GUI items.
 
 ## Remaining Work
 
@@ -22,15 +22,11 @@ Secrets or Actions. Keep it in the repo while there are open GUI items.
   Layout definitions may be persisted later outside the portable vault if a
   GUI-local persistence model is useful.
 
-- Better jump-chain editing.
-  Replace host-ID-oriented editing with an ordered visual chain, searchable host
-  picker, remove/reorder controls, self-jump prevention, clear jump target
-  details, and useful `ProxyJump` or temporary config preview.
-
-- Better port-forward editing.
-  Move beyond compact forward rows toward structured local, remote, and dynamic
-  forward editors. Keep the direction of traffic and exact OpenSSH semantics
-  clear, and distinguish configured forwards from currently running forwards.
+- Jump and forward workflow polish.
+  Dedicated Inspector panes now cover ordered jump-chain editing and structured
+  local, remote, and dynamic forward editing. Remaining polish includes stronger
+  keyboard paths, clearer invalid-reference recovery after external vault edits,
+  and distinguishing configured forwards from currently running forwards.
 
 - Identity UX polish.
   Improve the identity picker with clearer `(none)` behavior, preferred name,
@@ -48,6 +44,18 @@ Secrets or Actions. Keep it in the repo while there are open GUI items.
   folders, inline validation, and keyboard paths for high-frequency workflows
   such as connect, edit, diagnostics, reload, and move.
 
+- Action running and JSON-first authoring support.
+  The GUI should provide a strong action-running surface for the selected host:
+  list common and host-specific actions, show their origin, run them through the
+  shared core action path, and offer a dry-run/inspect view with resolved SSH
+  commands, temporary forwards, allocated ports, local launch commands, cleanup,
+  and missing capability diagnostics. Full structured action editing is deferred.
+  Actions remain JSON-first because they are programmable workflows with remote
+  commands, local tools, templating, forwards, cleanup, and machine-local
+  capability assumptions. GUI authoring help should focus on opening
+  `vault.json`/`local.json`, copying templates, and validating or previewing
+  JSON rather than building a form editor for the whole schema.
+
 - Resource awareness and TUI fallback.
   Add startup or first-run checks for very small screens, insufficient memory,
   unreliable WebView/runtime conditions, rendering problems, high idle CPU, or
@@ -56,6 +64,6 @@ Secrets or Actions. Keep it in the repo while there are open GUI items.
 
 ## Out Of Scope For This File
 
-Secrets and Actions remain important `stassh-gui` work, but they are tracked
-separately because they touch broader core, CLI, TUI, security, and process
+Secrets management remains important `stassh-gui` work, but it is tracked
+separately because it touches broader core, CLI, TUI, security, and process
 management behavior.

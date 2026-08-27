@@ -26,9 +26,9 @@ experience, platform constraints, performance testing, security review, or
 usability findings suggest a better approach.
 
 The remaining near-term GUI work is mostly polish and peripheral workflow depth:
-action running/editing surfaces remain incomplete, richer diagnostics surfaces
-need more work, and terminal-layout behavior needs broader manual and visual
-regression coverage.
+action running, dry-run inspection, and JSON-first authoring support remain
+incomplete, richer diagnostics surfaces need more work, and terminal-layout
+behavior needs broader manual and visual regression coverage.
 
 ---
 
@@ -325,6 +325,12 @@ that shows:
 
 The action runner should retain the OpenSSH-first model while adding GUI process
 management around it.
+
+Action authoring should remain JSON-first for now. The GUI can help by opening
+`vault.json` and `local.json`, copying schema-backed templates, validating
+actions, and previewing dry-run output, but a full structured action form editor
+is deferred because actions are programmable workflows rather than simple host
+metadata.
 
 ## 3.10 Secrets
 

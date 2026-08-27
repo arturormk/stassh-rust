@@ -57,6 +57,10 @@ Current MVP features:
 - contextual inspector for selected hosts, selected folders, active terminals,
   and layouts
 - diagnostics and generated OpenSSH preview
+- linked secrets inspection with explicit reveal
+- ordered jump-chain editing through a dedicated inspector pane
+- structured local, remote, and dynamic forward editing through a dedicated
+  inspector pane and host editor
 - terminal tabs
 - focused terminal find
 - independent terminal layout tabs
@@ -68,6 +72,10 @@ Current MVP features:
 - integrated PTY terminal through xterm.js
 - connect via OpenSSH
 
+The GUI host tree is a persistent navigator. It intentionally does not carry the
+TUI batch-selection model; multiple GUI sessions can be opened one by one while
+the tree remains visible.
+
 Avoid decorative dashboards, large cards, splash screens, account-centric flows, animated backgrounds, and excessive empty space.
 
 The current GUI uses Tauri, React, xterm.js, and a Rust PTY backend. Any future
@@ -76,7 +84,7 @@ keyboard handling, state management, and performance rather than fashion.
 
 Near-term GUI polish:
 
-- add richer action-running and action-editing surfaces
+- add richer action-running, dry-run inspection, and JSON-first authoring support
 - add screenshot or equivalent visual regression checks for terminal layouts
 
 ## GUI Terminal Path

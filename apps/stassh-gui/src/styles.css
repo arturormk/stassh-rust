@@ -217,16 +217,6 @@ code {
   color: #ffffff;
 }
 
-.treeRow.selectedItem {
-  border-color: #4d647d;
-  background: #202b36;
-}
-
-.treeRow.active.selectedItem {
-  border-color: #86a7c8;
-  background: #2b3d50;
-}
-
 .treeRow.dragging {
   opacity: 0.55;
 }
@@ -688,6 +678,67 @@ code {
   min-width: 0;
 }
 
+.jumpChainList,
+.jumpCandidateList {
+  display: grid;
+  gap: 8px;
+}
+
+.jumpSearch {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  color: #94a0ad;
+}
+
+.jumpSearch input {
+  min-width: 0;
+}
+
+.jumpHostRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #2d333c;
+  border-radius: 6px;
+  background: #171b21;
+  padding: 8px;
+}
+
+.jumpHostRow.muted {
+  opacity: 0.58;
+}
+
+.jumpHostMain {
+  min-width: 0;
+}
+
+.jumpHostPath {
+  display: block;
+  overflow: hidden;
+  color: #e8edf3;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jumpHostDetail {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: #94a0ad;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.jumpHostActions {
+  display: flex;
+  gap: 6px;
+}
+
 .editor label {
   color: #aab5c2;
   font-size: 13px;
@@ -699,16 +750,77 @@ code {
   padding-top: 4px;
 }
 
-.forwardRow {
+.forwardList {
   display: grid;
-  grid-template-columns: 62px minmax(0, 1fr) 34px;
-  gap: 7px;
-  align-items: center;
-  margin-bottom: 7px;
+  gap: 10px;
 }
 
-.forwardRow code {
-  padding: 7px;
+.forwardEditorRow {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #2d333c;
+  border-radius: 6px;
+  background: #171b21;
+  padding: 10px;
+}
+
+.forwardEditorRow.invalid {
+  border-color: #d46a5d;
+}
+
+.forwardRowHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.forwardRowHeader strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #e8edf3;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.forwardRowHeader code {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.forwardFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.forwardField {
+  display: grid;
+  gap: 4px;
+}
+
+.forwardField span {
+  color: #94a0ad;
+  font-size: 12px;
+}
+
+.forwardField input {
+  min-width: 0;
+}
+
+.forwardErrors {
+  margin: 0;
+  color: #f0a095;
+  font-size: 12px;
+}
+
+.forwardAddActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .terminalStatus {

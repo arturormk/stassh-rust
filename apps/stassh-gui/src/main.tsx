@@ -8,6 +8,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import {
   CaseSensitive,
   ArrowLeft,
+  ArrowRightLeft,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -141,6 +142,29 @@ type HostSecrets = {
   fields: SecretFieldView[];
 };
 
+type JumpCandidate = {
+  id: Id;
+  path: string;
+  displayName: string;
+  hostname: string;
+  port: number;
+  username: string | null;
+};
+
+type JumpDraft = {
+  hostId: Id;
+  hostPath: string;
+  selectedIds: Id[];
+  originalSelectedIds: Id[];
+};
+
+type ForwardsDraft = {
+  hostId: Id;
+  hostPath: string;
+  forwards: Forward[];
+  originalForwards: Forward[];
+};
+
 type Tab =
   | { type: "terminal"; id: Id; sessionId: Id; hostId: Id; title: string; status: string }
   | {
@@ -173,7 +197,6 @@ type HostForm = {
   username: string;
   identityFingerprint: string;
   secrets: string;
-  jumpChainText: string;
   forwards: Forward[];
   tags: string;
   notes: string;
@@ -201,7 +224,6 @@ function App() {
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [expanded, setExpanded] = useState<Set<Id>>(new Set());
-  const [checkedHosts, setCheckedHosts] = useState<Set<Id>>(new Set());
   const [draggingHostIds, setDraggingHostIds] = useState<Id[]>([]);
   const [dropTargetFolderId, setDropTargetFolderId] = useState<Id | null>(null);
   const [tabs, setTabs] = useState<Tab[]>([]);
@@ -218,6 +240,11 @@ function App() {
   const [secretsPane, setSecretsPane] = useState<HostSecrets | null>(null);
   const [revealPrompt, setRevealPrompt] = useState<{ field: string; loading: boolean } | null>(null);
   const [secretsLoading, setSecretsLoading] = useState(false);
+  const [jumpDraft, setJumpDraft] = useState<JumpDraft | null>(null);
+  const [jumpSearch, setJumpSearch] = useState("");
+  const [jumpsSaving, setJumpsSaving] = useState(false);
+  const [forwardsDraft, setForwardsDraft] = useState<ForwardsDraft | null>(null);
+  const [forwardsSaving, setForwardsSaving] = useState(false);
   const [status, setStatus] = useState("Loading workspace");
   const [error, setError] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(defaultSidebarWidth);
@@ -271,7 +298,13 @@ function App() {
     if (secretsPane && secretsPane.hostId !== inspectorHostId) {
       closeSecretsPane();
     }
-  }, [inspectorHostId, secretsPane?.hostId]);
+    if (jumpDraft && jumpDraft.hostId !== inspectorHostId) {
+      closeJumpPane();
+    }
+    if (forwardsDraft && forwardsDraft.hostId !== inspectorHostId) {
+      closeForwardsPane();
+    }
+  }, [inspectorHostId, secretsPane?.hostId, jumpDraft?.hostId, forwardsDraft?.hostId]);
 
   useEffect(() => {
     if (editorMode) {
@@ -367,6 +400,8 @@ function App() {
       const snapshot = await invoke<WorkspaceSnapshot>("reload_workspace");
       setWorkspace(snapshot);
       closeSecretsPane();
+      closeJumpPane();
+      closeForwardsPane();
       setStatus("Workspace reloaded");
     } catch (err) {
       setStatus(String(err));
@@ -375,6 +410,11 @@ function App() {
 
   async function saveHost() {
     if (!hostForm || !workspace) return;
+    const invalidForwardIndex = hostForm.forwards.findIndex((forward) => forwardErrors(forward).length > 0);
+    if (invalidForwardIndex >= 0) {
+      setStatus(`Forward ${invalidForwardIndex + 1} has invalid settings`);
+      return;
+    }
     const payload = {
       folderId: hostForm.folderId,
       displayName: hostForm.displayName.trim(),
@@ -383,10 +423,10 @@ function App() {
       username: blank(hostForm.username),
       identityFingerprint: blank(hostForm.identityFingerprint),
       secrets: blank(hostForm.secrets),
-      jumpChain: hostForm.jumpChainText
-        .split(",")
-        .map((value) => value.trim())
-        .filter(Boolean),
+      jumpChain:
+        editorMode === "new-host"
+          ? []
+          : workspace.hosts.find((host) => host.id === editingHostId)?.jumpChain ?? [],
       forwards: hostForm.forwards,
       tags: hostForm.tags
         .split(",")
@@ -403,6 +443,8 @@ function App() {
       setEditorMode(null);
       setEditingHostId(null);
       closeSecretsPane();
+      closeJumpPane();
+      closeForwardsPane();
       setStatus("Host saved");
     } catch (err) {
       setStatus(String(err));
@@ -424,6 +466,8 @@ function App() {
       setWorkspace(snapshot);
       setEditorMode(null);
       setEditingHostId(null);
+      closeJumpPane();
+      closeForwardsPane();
       setStatus("Folder saved");
     } catch (err) {
       setStatus(String(err));
@@ -452,18 +496,6 @@ function App() {
     } catch (err) {
       setStatus(String(err));
     }
-  }
-
-  async function openCheckedHosts() {
-    if (!workspace || !checkedHosts.size) return;
-    const hostIds = Array.from(checkedHosts);
-    const hosts = hostIds
-      .map((hostId) => workspace.hosts.find((host) => host.id === hostId))
-      .filter((host): host is HostView => Boolean(host));
-    for (const host of hosts) {
-      await openTerminal(host);
-    }
-    setCheckedHosts(new Set());
   }
 
   async function closeTab(tab: Tab) {
@@ -633,6 +665,8 @@ function App() {
       const snapshot = await invoke<WorkspaceSnapshot>(command, args);
       setWorkspace(snapshot);
       closeSecretsPane();
+      closeJumpPane();
+      closeForwardsPane();
       setStatus(message);
     } catch (err) {
       setStatus(String(err));
@@ -650,13 +684,14 @@ function App() {
       username: host?.username ?? "",
       identityFingerprint: host?.identityFingerprint ?? "",
       secrets: host?.secrets ?? "",
-      jumpChainText: host?.jumpChain.join(", ") ?? "",
       forwards: host?.forwards ?? [],
       tags: host?.tags.join(", ") ?? "",
       notes: host?.notes ?? "",
     });
     setFolderForm(null);
     closeSecretsPane();
+    closeJumpPane();
+    closeForwardsPane();
     setEditorMode(mode);
     setEditingHostId(mode === "host" ? host?.id ?? null : null);
   }
@@ -669,6 +704,8 @@ function App() {
     });
     setHostForm(null);
     closeSecretsPane();
+    closeJumpPane();
+    closeForwardsPane();
     setEditorMode(mode);
     setEditingHostId(null);
   }
@@ -702,6 +739,113 @@ function App() {
     setSecretsPane(null);
     setRevealPrompt(null);
     setSecretsLoading(false);
+  }
+
+  function openJumpPane(host: HostView) {
+    setJumpDraft({
+      hostId: host.id,
+      hostPath: host.path,
+      selectedIds: [...host.jumpChain],
+      originalSelectedIds: [...host.jumpChain],
+    });
+    setJumpSearch("");
+    setJumpsSaving(false);
+    closeSecretsPane();
+    setInspectorCollapsed(false);
+    setStatus("Jumps loaded");
+  }
+
+  function closeJumpPane() {
+    setJumpDraft(null);
+    setJumpSearch("");
+    setJumpsSaving(false);
+  }
+
+  function addJump(hostId: Id) {
+    setJumpDraft((current) => {
+      if (!current || current.hostId === hostId || current.selectedIds.includes(hostId)) return current;
+      return { ...current, selectedIds: [...current.selectedIds, hostId] };
+    });
+  }
+
+  function removeJump(hostId: Id) {
+    setJumpDraft((current) =>
+      current ? { ...current, selectedIds: current.selectedIds.filter((selectedId) => selectedId !== hostId) } : current,
+    );
+  }
+
+  function moveJump(hostId: Id, delta: -1 | 1) {
+    setJumpDraft((current) => {
+      if (!current) return current;
+      const index = current.selectedIds.indexOf(hostId);
+      const nextIndex = index + delta;
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.selectedIds.length) return current;
+      const selectedIds = [...current.selectedIds];
+      [selectedIds[index], selectedIds[nextIndex]] = [selectedIds[nextIndex], selectedIds[index]];
+      return { ...current, selectedIds };
+    });
+  }
+
+  async function saveJumps() {
+    if (!jumpDraft) return;
+    setJumpsSaving(true);
+    try {
+      const snapshot = await invoke<WorkspaceSnapshot>("update_jumps", {
+        hostId: jumpDraft.hostId,
+        jumpChain: jumpDraft.selectedIds,
+      });
+      setWorkspace(snapshot);
+      closeJumpPane();
+      setStatus("Jumps saved");
+    } catch (err) {
+      setJumpsSaving(false);
+      setStatus(String(err));
+    }
+  }
+
+  function openForwardsPane(host: HostView) {
+    setForwardsDraft({
+      hostId: host.id,
+      hostPath: host.path,
+      forwards: [...host.forwards],
+      originalForwards: [...host.forwards],
+    });
+    setForwardsSaving(false);
+    closeSecretsPane();
+    closeJumpPane();
+    setInspectorCollapsed(false);
+    setStatus("Forwards loaded");
+  }
+
+  function closeForwardsPane() {
+    setForwardsDraft(null);
+    setForwardsSaving(false);
+  }
+
+  function updateForwardsDraft(forwards: Forward[]) {
+    setForwardsDraft((current) => (current ? { ...current, forwards } : current));
+  }
+
+  async function saveForwards() {
+    if (!forwardsDraft) return;
+    const invalidForwardIndex = forwardsDraft.forwards.findIndex((forward) => forwardErrors(forward).length > 0);
+    if (invalidForwardIndex >= 0) {
+      setStatus(`Forward ${invalidForwardIndex + 1} has invalid settings`);
+      return;
+    }
+    setForwardsSaving(true);
+    try {
+      const snapshot = await invoke<WorkspaceSnapshot>("update_forwards", {
+        hostId: forwardsDraft.hostId,
+        forwards: forwardsDraft.forwards,
+      });
+      setWorkspace(snapshot);
+      closeForwardsPane();
+      setStatus("Forwards saved");
+    } catch (err) {
+      setForwardsSaving(false);
+      setStatus(String(err));
+    }
   }
 
   async function revealSecret(field: string, masterPassword: string) {
@@ -845,9 +989,6 @@ function App() {
           <button onClick={() => startFolderEditor("new-folder")}>
             <Plus size={15} /> Folder
           </button>
-          <button onClick={openCheckedHosts} disabled={!checkedHosts.size}>
-            <TerminalSquare size={15} /> Open
-          </button>
         </div>
         {query.trim() ? (
           <SearchResults
@@ -869,15 +1010,12 @@ function App() {
             setExpanded={setExpanded}
             selection={selection}
             setSelection={setSelection}
-            checkedHosts={checkedHosts}
-            setCheckedHosts={setCheckedHosts}
             draggingHostIds={draggingHostIds}
             dropTargetFolderId={dropTargetFolderId}
             setDraggingHostIds={setDraggingHostIds}
             setDropTargetFolderId={setDropTargetFolderId}
             onMoveHosts={(hostIds, folderId) =>
               applySnapshot("move_hosts", { hostIds, folderId }, "Host moved").then(() => {
-                setCheckedHosts(new Set());
                 setDropTargetFolderId(null);
                 setDraggingHostIds([]);
               })
@@ -1032,6 +1170,11 @@ function App() {
             secretsPane={secretsPane}
             revealPrompt={revealPrompt}
             secretsLoading={secretsLoading}
+            jumpDraft={jumpDraft}
+            jumpSearch={jumpSearch}
+            jumpsSaving={jumpsSaving}
+            forwardsDraft={forwardsDraft}
+            forwardsSaving={forwardsSaving}
             collapsed={inspectorCollapsed && !editorMode}
             hostForm={hostForm}
             setHostForm={setHostForm}
@@ -1062,6 +1205,17 @@ function App() {
             onCancelReveal={() => setRevealPrompt(null)}
             onRevealSecret={revealSecret}
             onHideSecret={hideSecret}
+            onOpenJumps={openJumpPane}
+            onCloseJumps={closeJumpPane}
+            onSaveJumps={saveJumps}
+            onJumpSearch={setJumpSearch}
+            onAddJump={addJump}
+            onRemoveJump={removeJump}
+            onMoveJump={moveJump}
+            onOpenForwards={openForwardsPane}
+            onCloseForwards={closeForwardsPane}
+            onSaveForwards={saveForwards}
+            onUpdateForwards={updateForwardsDraft}
           />
         </aside>
       )}
@@ -1069,7 +1223,6 @@ function App() {
       <footer className="statusbar">
         <span>{status}</span>
         <span>{workspace.diagnostics.length} diagnostics</span>
-        <span>{checkedHosts.size} selected</span>
         <span>{workspace.vaultPath}</span>
       </footer>
     </div>
@@ -1083,8 +1236,6 @@ function InventoryTree(props: {
   setExpanded: (value: Set<Id>) => void;
   selection: Selection | null;
   setSelection: (value: Selection) => void;
-  checkedHosts: Set<Id>;
-  setCheckedHosts: (value: Set<Id>) => void;
   draggingHostIds: Id[];
   dropTargetFolderId: Id | null;
   setDraggingHostIds: (value: Id[]) => void;
@@ -1099,8 +1250,6 @@ function InventoryTree(props: {
     setExpanded,
     selection,
     setSelection,
-    checkedHosts,
-    setCheckedHosts,
     draggingHostIds,
     dropTargetFolderId,
     setDraggingHostIds,
@@ -1117,39 +1266,16 @@ function InventoryTree(props: {
     setExpanded(next);
   }
 
-  function toggleHostSelection(hostId: Id) {
-    const next = new Set(checkedHosts);
-    if (next.has(hostId)) next.delete(hostId);
-    else next.add(hostId);
-    setCheckedHosts(next);
-  }
-
-  function toggleFolderSelection(folderId: Id) {
-    const hostIds = descendantHostIds(workspace, folderId);
-    const next = new Set(checkedHosts);
-    const allSelected = hostIds.every((id: Id) => next.has(id));
-    hostIds.forEach((id: Id) => (allSelected ? next.delete(id) : next.add(id)));
-    setCheckedHosts(next);
-  }
-
-  function selectFolder(event: React.MouseEvent<HTMLDivElement>, folderId: Id) {
-    if (event.metaKey || event.ctrlKey) {
-      toggleFolderSelection(folderId);
-      return;
-    }
+  function selectFolder(folderId: Id) {
     setSelection({ type: "folder", id: folderId });
   }
 
-  function selectHost(event: React.MouseEvent<HTMLDivElement>, hostId: Id) {
-    if (event.metaKey || event.ctrlKey) {
-      toggleHostSelection(hostId);
-      return;
-    }
+  function selectHost(hostId: Id) {
     setSelection({ type: "host", id: hostId });
   }
 
   function startHostDrag(event: React.DragEvent<HTMLDivElement>, host: HostView) {
-    const hostIds = checkedHosts.has(host.id) ? Array.from(checkedHosts) : [host.id];
+    const hostIds = [host.id];
     setDraggingHostIds(hostIds);
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("application/x-stassh-hosts", JSON.stringify(hostIds));
@@ -1202,15 +1328,15 @@ function InventoryTree(props: {
           <div
             key={row.folder.id}
             className={`treeRow ${selection?.type === "folder" && selection.id === row.folder.id ? "active" : ""} ${
-              folderSelectionState(workspace, checkedHosts, row.folder.id) !== "none" ? "selectedItem" : ""
-            } ${dropTargetFolderId === row.folder.id ? "dropTarget" : ""} ${
+              dropTargetFolderId === row.folder.id ? "dropTarget" : ""
+            } ${
               dropTargetFolderId === row.folder.id &&
               draggingHostIds.every((hostId) => workspace.hosts.find((host) => host.id === hostId)?.folderId === row.folder.id)
                 ? "dropTargetCurrent"
                 : ""
             }`}
             style={{ paddingLeft: 10 + row.depth * 16 }}
-            onClick={(event) => selectFolder(event, row.folder.id)}
+            onClick={() => selectFolder(row.folder.id)}
             onDragOver={(event) => dragOverFolder(event, row.folder.id)}
             onDragLeave={(event) => leaveFolderDropTarget(event, row.folder.id)}
             onDrop={(event) => dropHostsOnFolder(event, row.folder.id)}
@@ -1226,12 +1352,12 @@ function InventoryTree(props: {
           <div
             key={row.host.id}
             className={`treeRow host ${selection?.type === "host" && selection.id === row.host.id ? "active" : ""} ${
-              checkedHosts.has(row.host.id) ? "selectedItem" : ""
-            } ${draggingHostIds.includes(row.host.id) ? "dragging" : ""}
+              draggingHostIds.includes(row.host.id) ? "dragging" : ""
+            }
             }`}
             style={{ paddingLeft: 34 + row.depth * 16 }}
             draggable
-            onClick={(event) => selectHost(event, row.host.id)}
+            onClick={() => selectHost(row.host.id)}
             onDoubleClick={() => onOpen(row.host)}
             onDragStart={(event) => startHostDrag(event, row.host)}
             onDragEnd={endHostDrag}
@@ -1316,6 +1442,11 @@ function Inspector(props: {
   secretsPane: HostSecrets | null;
   revealPrompt: { field: string; loading: boolean } | null;
   secretsLoading: boolean;
+  jumpDraft: JumpDraft | null;
+  jumpSearch: string;
+  jumpsSaving: boolean;
+  forwardsDraft: ForwardsDraft | null;
+  forwardsSaving: boolean;
   collapsed: boolean;
   hostForm: HostForm | null;
   setHostForm: (form: HostForm | null) => void;
@@ -1338,6 +1469,17 @@ function Inspector(props: {
   onCancelReveal: () => void;
   onRevealSecret: (field: string, masterPassword: string) => void;
   onHideSecret: (field: string) => void;
+  onOpenJumps: (host: HostView) => void;
+  onCloseJumps: () => void;
+  onSaveJumps: () => void;
+  onJumpSearch: (query: string) => void;
+  onAddJump: (hostId: Id) => void;
+  onRemoveJump: (hostId: Id) => void;
+  onMoveJump: (hostId: Id, delta: -1 | 1) => void;
+  onOpenForwards: (host: HostView) => void;
+  onCloseForwards: () => void;
+  onSaveForwards: () => void;
+  onUpdateForwards: (forwards: Forward[]) => void;
 }) {
   if (props.collapsed) {
     return (
@@ -1379,7 +1521,6 @@ function Inspector(props: {
           ))}
         </select>
         <Field label="Secrets Set" value={form.secrets} onChange={(secrets) => setForm({ secrets })} />
-        <Field label="Jump IDs" value={form.jumpChainText} onChange={(jumpChainText) => setForm({ jumpChainText })} />
         <Field label="Tags" value={form.tags} onChange={(tags) => setForm({ tags })} />
         <label>Notes</label>
         <textarea value={form.notes} onChange={(event) => setForm({ notes: event.target.value })} />
@@ -1427,6 +1568,35 @@ function Inspector(props: {
         />
       );
     }
+    if (props.jumpDraft?.hostId === props.target.host.id) {
+      return (
+        <HostJumpsPane
+          draft={props.jumpDraft}
+          hosts={props.workspace.hosts}
+          search={props.jumpSearch}
+          saving={props.jumpsSaving}
+          onCollapse={props.onCollapse}
+          onClose={props.onCloseJumps}
+          onSave={props.onSaveJumps}
+          onSearch={props.onJumpSearch}
+          onAdd={props.onAddJump}
+          onRemove={props.onRemoveJump}
+          onMove={props.onMoveJump}
+        />
+      );
+    }
+    if (props.forwardsDraft?.hostId === props.target.host.id) {
+      return (
+        <HostForwardsPane
+          draft={props.forwardsDraft}
+          saving={props.forwardsSaving}
+          onCollapse={props.onCollapse}
+          onClose={props.onCloseForwards}
+          onSave={props.onSaveForwards}
+          onChange={props.onUpdateForwards}
+        />
+      );
+    }
     return (
       <HostInspectorDetails
         target={props.target}
@@ -1436,6 +1606,8 @@ function Inspector(props: {
         onCopy={props.onCopyHost}
         onDelete={props.onDeleteHost}
         onSecrets={props.onOpenSecrets}
+        onJumps={props.onOpenJumps}
+        onForwards={props.onOpenForwards}
       />
     );
   }
@@ -1494,6 +1666,8 @@ function HostInspectorDetails(props: {
   onCopy: (host: HostView) => void;
   onDelete: (host: HostView) => void;
   onSecrets: (host: HostView) => void;
+  onJumps: (host: HostView) => void;
+  onForwards: (host: HostView) => void;
 }) {
   const { host, details, terminal, source } = props.target;
   const subtitle =
@@ -1517,6 +1691,12 @@ function HostInspectorDetails(props: {
         </button>
         <button onClick={() => props.onSecrets(host)} disabled={!host.secrets}>
           <KeyRound size={16} /> Secrets
+        </button>
+        <button onClick={() => props.onJumps(host)}>
+          <ChevronRight size={16} /> Jumps
+        </button>
+        <button onClick={() => props.onForwards(host)}>
+          <ArrowRightLeft size={16} /> Forwards
         </button>
         <button className="danger" onClick={() => props.onDelete(host)}>
           <Trash2 size={16} /> Delete
@@ -1558,6 +1738,199 @@ function HostInspectorDetails(props: {
   );
 }
 
+function HostForwardsPane(props: {
+  draft: ForwardsDraft;
+  saving: boolean;
+  onCollapse: () => void;
+  onClose: () => void;
+  onSave: () => void;
+  onChange: (forwards: Forward[]) => void;
+}) {
+  const dirty = !sameForwards(props.draft.forwards, props.draft.originalForwards);
+  return (
+    <div className="inspectorDetails forwardsPane">
+      <InspectorHeader title="Forwards" subtitle={props.draft.hostPath} onCollapse={props.onCollapse} />
+      <div className="inspectorActions">
+        {dirty ? (
+          <>
+            <button onClick={props.onSave} disabled={props.saving}>
+              <Save size={16} /> Save
+            </button>
+            <button onClick={props.onClose} disabled={props.saving}>
+              <X size={16} /> Cancel
+            </button>
+          </>
+        ) : (
+          <button onClick={props.onClose} disabled={props.saving}>
+            <ArrowLeft size={16} /> Host
+          </button>
+        )}
+      </div>
+      <ForwardEditor forwards={props.draft.forwards} onChange={props.onChange} />
+    </div>
+  );
+}
+
+function HostJumpsPane(props: {
+  draft: JumpDraft;
+  hosts: HostView[];
+  search: string;
+  saving: boolean;
+  onCollapse: () => void;
+  onClose: () => void;
+  onSave: () => void;
+  onSearch: (query: string) => void;
+  onAdd: (hostId: Id) => void;
+  onRemove: (hostId: Id) => void;
+  onMove: (hostId: Id, delta: -1 | 1) => void;
+}) {
+  const candidates = useMemo(
+    () =>
+      props.hosts
+        .filter((host) => host.id !== props.draft.hostId)
+        .map(jumpCandidate)
+        .sort((a, b) => a.path.localeCompare(b.path)),
+    [props.hosts, props.draft.hostId],
+  );
+  const candidatesById = useMemo(() => new Map(candidates.map((candidate) => [candidate.id, candidate])), [candidates]);
+  const selected = props.draft.selectedIds
+    .map((id) => candidatesById.get(id))
+    .filter((candidate): candidate is JumpCandidate => Boolean(candidate));
+  const selectedIds = new Set(selected.map((candidate) => candidate.id));
+  const dirty = !sameIds(props.draft.selectedIds, props.draft.originalSelectedIds);
+  const query = props.search.trim().toLowerCase();
+  const available = candidates.filter((candidate) => {
+    if (!query) return true;
+    return [
+      candidate.path,
+      candidate.displayName,
+      candidate.hostname,
+      candidate.username ?? "",
+      String(candidate.port),
+    ].some((value) => value.toLowerCase().includes(query));
+  });
+
+  return (
+    <div className="inspectorDetails jumpsPane">
+      <InspectorHeader title="Jumps" subtitle={props.draft.hostPath} onCollapse={props.onCollapse} />
+      <div className="inspectorActions">
+        {dirty ? (
+          <>
+            <button onClick={props.onSave} disabled={props.saving}>
+              <Save size={16} /> Save
+            </button>
+            <button onClick={props.onClose} disabled={props.saving}>
+              <X size={16} /> Cancel
+            </button>
+          </>
+        ) : (
+          <button onClick={props.onClose} disabled={props.saving}>
+            <ArrowLeft size={16} /> Host
+          </button>
+        )}
+      </div>
+      <DetailList>
+        <DetailRow label="ProxyJump" value={formatProxyJump(selected)} />
+      </DetailList>
+      <section>
+        <h3>Chain</h3>
+        {selected.length ? (
+          <div className="jumpChainList">
+            {selected.map((candidate, index) => (
+              <JumpHostRow
+                key={candidate.id}
+                candidate={candidate}
+                actions={
+                  <>
+                    <button
+                      className="iconOnlyButton"
+                      title="Move earlier"
+                      disabled={index === 0 || props.saving}
+                      onClick={() => props.onMove(candidate.id, -1)}
+                    >
+                      <ChevronUp size={16} />
+                    </button>
+                    <button
+                      className="iconOnlyButton"
+                      title="Move later"
+                      disabled={index === selected.length - 1 || props.saving}
+                      onClick={() => props.onMove(candidate.id, 1)}
+                    >
+                      <ChevronDown size={16} />
+                    </button>
+                    <button
+                      className="iconOnlyButton"
+                      title="Remove jump"
+                      disabled={props.saving}
+                      onClick={() => props.onRemove(candidate.id)}
+                    >
+                      <X size={16} />
+                    </button>
+                  </>
+                }
+              />
+            ))}
+          </div>
+        ) : (
+          <p>No jumps configured</p>
+        )}
+      </section>
+      <section>
+        <h3>Candidates</h3>
+        <div className="jumpSearch">
+          <Search size={15} />
+          <input
+            value={props.search}
+            placeholder="Search hosts"
+            disabled={props.saving}
+            onChange={(event) => props.onSearch(event.target.value)}
+          />
+        </div>
+        {available.length ? (
+          <div className="jumpCandidateList">
+            {available.map((candidate) => {
+              const selected = selectedIds.has(candidate.id);
+              return (
+                <JumpHostRow
+                  key={candidate.id}
+                  candidate={candidate}
+                  muted={selected}
+                  actions={
+                    <button
+                      className="iconOnlyButton"
+                      title={selected ? "Already in chain" : "Add jump"}
+                      disabled={selected || props.saving}
+                      onClick={() => props.onAdd(candidate.id)}
+                    >
+                      <Plus size={16} />
+                    </button>
+                  }
+                />
+              );
+            })}
+          </div>
+        ) : props.hosts.length <= 1 ? (
+          <p>No other hosts are available as jump targets.</p>
+        ) : (
+          <p>No matching hosts.</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function JumpHostRow(props: { candidate: JumpCandidate; actions: React.ReactNode; muted?: boolean }) {
+  return (
+    <div className={`jumpHostRow ${props.muted ? "muted" : ""}`}>
+      <div className="jumpHostMain">
+        <span className="jumpHostPath">{props.candidate.path}</span>
+        <span className="jumpHostDetail">{jumpCandidateDetail(props.candidate)}</span>
+      </div>
+      <div className="jumpHostActions">{props.actions}</div>
+    </div>
+  );
+}
+
 function HostSecretsPane(props: {
   data: HostSecrets;
   revealPrompt: { field: string; loading: boolean } | null;
@@ -1589,7 +1962,7 @@ function HostSecretsPane(props: {
       <InspectorHeader title="Secrets" subtitle={props.data.hostPath} onCollapse={props.onCollapse} />
       <div className="inspectorActions">
         <button onClick={props.onClose}>
-          <ArrowLeft size={16} /> Details
+          <ArrowLeft size={16} /> Host
         </button>
       </div>
       <DetailList>
@@ -2239,22 +2612,136 @@ function ForwardEditor(props: { forwards: Forward[]; onChange: (forwards: Forwar
         destination_port: 5901,
       },
     ]);
+  const addRemote = () =>
+    props.onChange([
+      ...props.forwards,
+      {
+        type: "remote",
+        bind_address: "127.0.0.1",
+        remote_port: 5901,
+        destination_host: "127.0.0.1",
+        destination_port: 5901,
+      },
+    ]);
+  const addDynamic = () =>
+    props.onChange([
+      ...props.forwards,
+      {
+        type: "dynamic",
+        bind_address: "127.0.0.1",
+        local_port: 1080,
+      },
+    ]);
+  const updateForward = (index: number, forward: Forward) =>
+    props.onChange(props.forwards.map((item, itemIndex) => (itemIndex === index ? forward : item)));
+  const removeForward = (index: number) => props.onChange(props.forwards.filter((_, itemIndex) => itemIndex !== index));
+
   return (
     <section className="forwards">
       <h3>Forwards</h3>
-      {props.forwards.map((forward, index) => (
-        <div className="forwardRow" key={index}>
-          <span>{forward.type}</span>
-          <code>{formatForward(forward)}</code>
-          <button onClick={() => props.onChange(props.forwards.filter((_, i) => i !== index))}>
-            <Trash2 size={14} />
-          </button>
+      {props.forwards.length ? (
+        <div className="forwardList">
+          {props.forwards.map((forward, index) => (
+            <ForwardRow
+              key={index}
+              forward={forward}
+              onChange={(next) => updateForward(index, next)}
+              onRemove={() => removeForward(index)}
+            />
+          ))}
         </div>
-      ))}
-      <button onClick={addLocal}>
-        <Plus size={15} /> Local Forward
-      </button>
+      ) : (
+        <p>No forwards configured</p>
+      )}
+      <div className="forwardAddActions">
+        <button onClick={addLocal}>
+          <Plus size={15} /> Local
+        </button>
+        <button onClick={addRemote}>
+          <Plus size={15} /> Remote
+        </button>
+        <button onClick={addDynamic}>
+          <Plus size={15} /> Dynamic
+        </button>
+      </div>
     </section>
+  );
+}
+
+function ForwardRow(props: { forward: Forward; onChange: (forward: Forward) => void; onRemove: () => void }) {
+  const { forward } = props;
+  const errors = forwardErrors(forward);
+  return (
+    <div className={`forwardEditorRow ${errors.length ? "invalid" : ""}`}>
+      <div className="forwardRowHeader">
+        <div>
+          <strong>{forwardTitle(forward)}</strong>
+          <code>{formatForward(forward)}</code>
+        </div>
+        <button className="iconOnlyButton" title="Remove forward" onClick={props.onRemove}>
+          <Trash2 size={15} />
+        </button>
+      </div>
+      <div className="forwardFields">
+        <ForwardTextField
+          label="Bind Address"
+          value={forward.bind_address}
+          onChange={(bind_address) => props.onChange({ ...forward, bind_address })}
+        />
+        {forward.type === "remote" ? (
+          <ForwardPortField
+            label="Remote Port"
+            value={forward.remote_port}
+            onChange={(remote_port) => props.onChange({ ...forward, remote_port })}
+          />
+        ) : (
+          <ForwardPortField
+            label="Local Port"
+            value={forward.local_port}
+            onChange={(local_port) => props.onChange({ ...forward, local_port })}
+          />
+        )}
+        {forward.type !== "dynamic" && (
+          <>
+            <ForwardTextField
+              label="Destination Host"
+              value={forward.destination_host}
+              onChange={(destination_host) => props.onChange({ ...forward, destination_host })}
+            />
+            <ForwardPortField
+              label="Destination Port"
+              value={forward.destination_port}
+              onChange={(destination_port) => props.onChange({ ...forward, destination_port })}
+            />
+          </>
+        )}
+      </div>
+      {errors.length > 0 && <p className="forwardErrors">{errors.join(", ")}</p>}
+    </div>
+  );
+}
+
+function ForwardTextField(props: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="forwardField">
+      <span>{props.label}</span>
+      <input value={props.value} onChange={(event) => props.onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function ForwardPortField(props: { label: string; value: number; onChange: (value: number) => void }) {
+  return (
+    <label className="forwardField">
+      <span>{props.label}</span>
+      <input
+        type="number"
+        min="1"
+        max="65535"
+        value={props.value}
+        onChange={(event) => props.onChange(portFromInput(event.target.value))}
+      />
+    </label>
   );
 }
 
@@ -2307,34 +2794,76 @@ function treeRows(workspace: WorkspaceSnapshot, expanded: Set<Id>): TreeRow[] {
   return rows;
 }
 
-function descendantHostIds(workspace: WorkspaceSnapshot, folderId: Id): Id[] {
-  const childFolders = workspace.folders.filter((folder) => folder.parentId === folderId);
-  return [
-    ...workspace.hosts.filter((host) => host.folderId === folderId).map((host) => host.id),
-    ...childFolders.flatMap((folder) => descendantHostIds(workspace, folder.id)),
-  ];
-}
-
-function folderSelectionState(
-  workspace: WorkspaceSnapshot,
-  checkedHosts: Set<Id>,
-  folderId: Id,
-): "none" | "some" | "all" {
-  const descendants = descendantHostIds(workspace, folderId);
-  if (!descendants.length) return "none";
-  return descendants.every((id: Id) => checkedHosts.has(id))
-    ? "all"
-    : descendants.some((id: Id) => checkedHosts.has(id))
-      ? "some"
-      : "none";
-}
-
 function formatForward(forward: Forward) {
   if (forward.type === "remote") {
     return `${forward.bind_address}:${forward.remote_port} -> ${forward.destination_host}:${forward.destination_port}`;
   }
   if (forward.type === "dynamic") return `${forward.bind_address}:${forward.local_port}`;
   return `${forward.bind_address}:${forward.local_port} -> ${forward.destination_host}:${forward.destination_port}`;
+}
+
+function forwardTitle(forward: Forward) {
+  if (forward.type === "local") return "Local Forward";
+  if (forward.type === "remote") return "Remote Forward";
+  return "Dynamic Forward";
+}
+
+function forwardErrors(forward: Forward) {
+  const errors: string[] = [];
+  if (!forward.bind_address.trim()) errors.push("bind address required");
+  if (forward.type !== "dynamic" && !forward.destination_host.trim()) errors.push("destination host required");
+  if (forward.type === "remote") {
+    if (!validPort(forward.remote_port)) errors.push("remote port must be 1-65535");
+  } else if (!validPort(forward.local_port)) {
+    errors.push("local port must be 1-65535");
+  }
+  if (forward.type !== "dynamic" && !validPort(forward.destination_port)) {
+    errors.push("destination port must be 1-65535");
+  }
+  return errors;
+}
+
+function validPort(port: number) {
+  return Number.isInteger(port) && port >= 1 && port <= 65535;
+}
+
+function portFromInput(value: string) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.min(65535, Math.max(1, Math.trunc(parsed)));
+}
+
+function sameIds(left: Id[], right: Id[]) {
+  return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
+function sameForwards(left: Forward[], right: Forward[]) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function jumpCandidate(host: HostView): JumpCandidate {
+  return {
+    id: host.id,
+    path: host.path,
+    displayName: host.displayName,
+    hostname: host.hostname,
+    port: host.port,
+    username: host.username,
+  };
+}
+
+function jumpCandidateDetail(candidate: JumpCandidate) {
+  return `${candidate.username || "(default)"}@${candidate.hostname}:${candidate.port}`;
+}
+
+function formatProxyJump(jumps: JumpCandidate[]) {
+  if (!jumps.length) return "none";
+  return jumps
+    .map((jump) => {
+      const destination = jump.username ? `${jump.username}@${jump.hostname}` : jump.hostname;
+      return jump.port === 22 ? destination : `${destination}:${jump.port}`;
+    })
+    .join(",");
 }
 
 function layoutStageStyle(layout: Extract<Tab, { type: "layout" }>): React.CSSProperties {

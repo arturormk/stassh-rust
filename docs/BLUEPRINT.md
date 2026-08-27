@@ -1579,8 +1579,8 @@ terminal views, layout-local broadcast input, drag/drop layout composition,
 internal full-screen terminal panes, close confirmation for running sessions,
 and host-tree indicators for open sessions.
 
-The next GUI polish areas are action running/editing and richer diagnostics
-surfaces.
+The next GUI polish areas are action running, dry-run inspection,
+JSON-first authoring support, and richer diagnostics surfaces.
 
 ---
 

@@ -60,12 +60,16 @@
 - Add terminal layout tabs with equal-grid and main-pane modes.
 - Add layout composition by drag/drop, layout-local broadcast input, internal full-screen terminal panes, and host-tree open-session indicators.
 - Add contextual Inspector details for selections, terminals, and layouts.
+- Add Inspector panes for linked secrets, ordered jump-chain editing, and
+  structured local/remote/dynamic forward editing.
 - Add focused terminal find and running-session close confirmation.
+- Keep the GUI host tree as a persistent navigator; batch host selection remains
+  a TUI workflow.
 - Keep terminal byte streaming out of heavyweight frontend state.
 
 Remaining GUI polish:
 
-- Add stronger action-running and action-editing surfaces.
+- Add stronger action-running, dry-run inspection, and JSON-first authoring support.
 - Add visual/manual regression coverage for terminal layouts.
 
 ## Milestone 8: Actions And Capabilities
@@ -74,7 +78,7 @@ Remaining GUI polish:
 - Machine-local capability mappings exist for tools such as `vnc-viewer`, `browser`, and `terminal`.
 - Automatic local port allocation exists for action forwards.
 - Implement VNC and web-admin workflows as action examples, not special hard-coded subsystems.
-- Add action editing commands and TUI/GUI action editors.
+- Add action dry-run/inspection flows and JSON-first authoring helpers.
 
 ## Milestone 9: Hardening And Interop
 
