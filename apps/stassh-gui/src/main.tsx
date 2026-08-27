@@ -17,12 +17,14 @@ import {
   EyeOff,
   Folder,
   KeyRound,
+  ListChecks,
   Maximize2,
   Minimize2,
   Monitor,
   PanelRightClose,
   PanelRightOpen,
   Pencil,
+  Play,
   Plus,
   RefreshCw,
   Save,
@@ -165,6 +167,47 @@ type ForwardsDraft = {
   originalForwards: Forward[];
 };
 
+type ActionView = {
+  id: Id;
+  name: string;
+  origin: "common" | "host";
+  remoteCommand: string | null;
+  hasLocalPrepare: boolean;
+  hasLocalLaunch: boolean;
+  forwardCount: number;
+  cleanupCount: number;
+};
+
+type LocalCommandView = {
+  program: string;
+  args: string[];
+  env: Record<string, string>;
+  display: string;
+};
+
+type ActionPlanView = {
+  actionName: string;
+  allocatedPorts: Record<string, number>;
+  sshCommand: string;
+  usesTempConfig: boolean;
+  tempConfigPath: string | null;
+  localPrepare: LocalCommandView | null;
+  localLaunch: LocalCommandView | null;
+  cleanup: LocalCommandView[];
+};
+
+type ActionsPane = {
+  hostId: Id;
+  hostPath: string;
+  hostName: string;
+  actions: ActionView[];
+  previewActionId: Id | null;
+  preview: ActionPlanView | null;
+  loading: boolean;
+  previewing: boolean;
+  runningActionId: Id | null;
+};
+
 type Tab =
   | { type: "terminal"; id: Id; sessionId: Id; hostId: Id; title: string; status: string }
   | {
@@ -245,6 +288,7 @@ function App() {
   const [jumpsSaving, setJumpsSaving] = useState(false);
   const [forwardsDraft, setForwardsDraft] = useState<ForwardsDraft | null>(null);
   const [forwardsSaving, setForwardsSaving] = useState(false);
+  const [actionsPane, setActionsPane] = useState<ActionsPane | null>(null);
   const [status, setStatus] = useState("Loading workspace");
   const [error, setError] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(defaultSidebarWidth);
@@ -304,7 +348,10 @@ function App() {
     if (forwardsDraft && forwardsDraft.hostId !== inspectorHostId) {
       closeForwardsPane();
     }
-  }, [inspectorHostId, secretsPane?.hostId, jumpDraft?.hostId, forwardsDraft?.hostId]);
+    if (actionsPane && actionsPane.hostId !== inspectorHostId) {
+      closeActionsPane();
+    }
+  }, [inspectorHostId, secretsPane?.hostId, jumpDraft?.hostId, forwardsDraft?.hostId, actionsPane?.hostId]);
 
   useEffect(() => {
     if (editorMode) {
@@ -402,6 +449,7 @@ function App() {
       closeSecretsPane();
       closeJumpPane();
       closeForwardsPane();
+      closeActionsPane();
       setStatus("Workspace reloaded");
     } catch (err) {
       setStatus(String(err));
@@ -445,6 +493,7 @@ function App() {
       closeSecretsPane();
       closeJumpPane();
       closeForwardsPane();
+      closeActionsPane();
       setStatus("Host saved");
     } catch (err) {
       setStatus(String(err));
@@ -468,6 +517,7 @@ function App() {
       setEditingHostId(null);
       closeJumpPane();
       closeForwardsPane();
+      closeActionsPane();
       setStatus("Folder saved");
     } catch (err) {
       setStatus(String(err));
@@ -667,6 +717,7 @@ function App() {
       closeSecretsPane();
       closeJumpPane();
       closeForwardsPane();
+      closeActionsPane();
       setStatus(message);
     } catch (err) {
       setStatus(String(err));
@@ -692,6 +743,7 @@ function App() {
     closeSecretsPane();
     closeJumpPane();
     closeForwardsPane();
+    closeActionsPane();
     setEditorMode(mode);
     setEditingHostId(mode === "host" ? host?.id ?? null : null);
   }
@@ -706,6 +758,7 @@ function App() {
     closeSecretsPane();
     closeJumpPane();
     closeForwardsPane();
+    closeActionsPane();
     setEditorMode(mode);
     setEditingHostId(null);
   }
@@ -720,6 +773,7 @@ function App() {
       setStatus("Selected host has no secrets set");
       return;
     }
+    closeActionsPane();
     setSecretsLoading(true);
     setRevealPrompt(null);
     try {
@@ -751,6 +805,7 @@ function App() {
     setJumpSearch("");
     setJumpsSaving(false);
     closeSecretsPane();
+    closeActionsPane();
     setInspectorCollapsed(false);
     setStatus("Jumps loaded");
   }
@@ -813,6 +868,7 @@ function App() {
     setForwardsSaving(false);
     closeSecretsPane();
     closeJumpPane();
+    closeActionsPane();
     setInspectorCollapsed(false);
     setStatus("Forwards loaded");
   }
@@ -845,6 +901,111 @@ function App() {
     } catch (err) {
       setForwardsSaving(false);
       setStatus(String(err));
+    }
+  }
+
+  async function openActionsPane(host: HostView) {
+    setActionsPane({
+      hostId: host.id,
+      hostPath: host.path,
+      hostName: host.displayName,
+      actions: [],
+      previewActionId: null,
+      preview: null,
+      loading: true,
+      previewing: false,
+      runningActionId: null,
+    });
+    closeSecretsPane();
+    closeJumpPane();
+    closeForwardsPane();
+    setInspectorCollapsed(false);
+    try {
+      const actions = await invoke<ActionView[]>("host_actions", { hostId: host.id });
+      setActionsPane((current) =>
+        current?.hostId === host.id
+          ? {
+              ...current,
+              actions,
+              loading: false,
+            }
+          : current,
+      );
+      setStatus(actions.length ? "Actions loaded" : "Selected host has no actions");
+    } catch (err) {
+      setActionsPane(null);
+      setStatus(String(err));
+    }
+  }
+
+  function closeActionsPane() {
+    setActionsPane(null);
+  }
+
+  async function previewAction(action: ActionView) {
+    if (!actionsPane) return;
+    setActionsPane((current) =>
+      current
+        ? {
+            ...current,
+            previewActionId: action.id,
+            preview: null,
+            previewing: true,
+          }
+        : current,
+    );
+    try {
+      const preview = await invoke<ActionPlanView>("preview_action", {
+        hostId: actionsPane.hostId,
+        actionId: action.id,
+      });
+      setActionsPane((current) =>
+        current?.hostId === actionsPane.hostId && current.previewActionId === action.id
+          ? {
+              ...current,
+              preview,
+              previewing: false,
+            }
+          : current,
+      );
+      setStatus(`Previewed action: ${action.name}`);
+    } catch (err) {
+      setActionsPane((current) => (current ? { ...current, previewing: false } : current));
+      setStatus(String(err));
+    }
+  }
+
+  async function runAction(action: ActionView) {
+    if (!actionsPane) return;
+    const host = workspace?.hosts.find((item) => item.id === actionsPane.hostId) ?? null;
+    if (!host) {
+      setStatus("Host not found");
+      return;
+    }
+    setActionsPane((current) => (current ? { ...current, runningActionId: action.id } : current));
+    try {
+      const sessionId = await invoke<Id>("start_action_session", {
+        hostId: actionsPane.hostId,
+        actionId: action.id,
+        cols: 100,
+        rows: 28,
+      });
+      const tab: Tab = {
+        type: "terminal",
+        id: sessionId,
+        sessionId,
+        hostId: host.id,
+        title: `${host.displayName}: ${action.name}`,
+        status: "running",
+      };
+      setTabs((current) => [...current, tab]);
+      setTerminalOrder((current) => [...current, sessionId]);
+      setActiveTabId(sessionId);
+      setStatus(`Running action: ${action.name}`);
+    } catch (err) {
+      setStatus(String(err));
+    } finally {
+      setActionsPane((current) => (current ? { ...current, runningActionId: null } : current));
     }
   }
 
@@ -1175,6 +1336,7 @@ function App() {
             jumpsSaving={jumpsSaving}
             forwardsDraft={forwardsDraft}
             forwardsSaving={forwardsSaving}
+            actionsPane={actionsPane}
             collapsed={inspectorCollapsed && !editorMode}
             hostForm={hostForm}
             setHostForm={setHostForm}
@@ -1216,6 +1378,10 @@ function App() {
             onCloseForwards={closeForwardsPane}
             onSaveForwards={saveForwards}
             onUpdateForwards={updateForwardsDraft}
+            onOpenActions={openActionsPane}
+            onCloseActions={closeActionsPane}
+            onPreviewAction={previewAction}
+            onRunAction={runAction}
           />
         </aside>
       )}
@@ -1447,6 +1613,7 @@ function Inspector(props: {
   jumpsSaving: boolean;
   forwardsDraft: ForwardsDraft | null;
   forwardsSaving: boolean;
+  actionsPane: ActionsPane | null;
   collapsed: boolean;
   hostForm: HostForm | null;
   setHostForm: (form: HostForm | null) => void;
@@ -1480,6 +1647,10 @@ function Inspector(props: {
   onCloseForwards: () => void;
   onSaveForwards: () => void;
   onUpdateForwards: (forwards: Forward[]) => void;
+  onOpenActions: (host: HostView) => void;
+  onCloseActions: () => void;
+  onPreviewAction: (action: ActionView) => void;
+  onRunAction: (action: ActionView) => void;
 }) {
   if (props.collapsed) {
     return (
@@ -1597,6 +1768,17 @@ function Inspector(props: {
         />
       );
     }
+    if (props.actionsPane?.hostId === props.target.host.id) {
+      return (
+        <HostActionsPane
+          pane={props.actionsPane}
+          onCollapse={props.onCollapse}
+          onClose={props.onCloseActions}
+          onPreview={props.onPreviewAction}
+          onRun={props.onRunAction}
+        />
+      );
+    }
     return (
       <HostInspectorDetails
         target={props.target}
@@ -1608,6 +1790,7 @@ function Inspector(props: {
         onSecrets={props.onOpenSecrets}
         onJumps={props.onOpenJumps}
         onForwards={props.onOpenForwards}
+        onActions={props.onOpenActions}
       />
     );
   }
@@ -1668,6 +1851,7 @@ function HostInspectorDetails(props: {
   onSecrets: (host: HostView) => void;
   onJumps: (host: HostView) => void;
   onForwards: (host: HostView) => void;
+  onActions: (host: HostView) => void;
 }) {
   const { host, details, terminal, source } = props.target;
   const subtitle =
@@ -1697,6 +1881,9 @@ function HostInspectorDetails(props: {
         </button>
         <button onClick={() => props.onForwards(host)}>
           <ArrowRightLeft size={16} /> Forwards
+        </button>
+        <button onClick={() => props.onActions(host)} disabled={!host.actionCount}>
+          <ListChecks size={16} /> Actions
         </button>
         <button className="danger" onClick={() => props.onDelete(host)}>
           <Trash2 size={16} /> Delete
@@ -1734,6 +1921,126 @@ function HostInspectorDetails(props: {
         <h3>Diagnostics</h3>
         <Diagnostics diagnostics={details?.diagnostics ?? []} />
       </section>
+    </div>
+  );
+}
+
+function HostActionsPane(props: {
+  pane: ActionsPane;
+  onCollapse: () => void;
+  onClose: () => void;
+  onPreview: (action: ActionView) => void;
+  onRun: (action: ActionView) => void;
+}) {
+  return (
+    <div className="inspectorDetails actionsPane">
+      <InspectorHeader title="Actions" subtitle={props.pane.hostPath} onCollapse={props.onCollapse} />
+      <div className="inspectorActions">
+        <button onClick={props.onClose}>
+          <ArrowLeft size={16} /> Host
+        </button>
+      </div>
+      {props.pane.loading ? (
+        <p>Loading actions</p>
+      ) : props.pane.actions.length ? (
+        <div className="actionList">
+          {props.pane.actions.map((action) => (
+            <ActionRow
+              key={`${action.origin}-${action.id}`}
+              action={action}
+              previewing={props.pane.previewing && props.pane.previewActionId === action.id}
+              running={props.pane.runningActionId === action.id}
+              onPreview={() => props.onPreview(action)}
+              onRun={() => props.onRun(action)}
+            />
+          ))}
+        </div>
+      ) : (
+        <p>No actions configured</p>
+      )}
+      {(props.pane.previewing || props.pane.preview) && (
+        <section>
+          <h3>Preview</h3>
+          {props.pane.previewing ? (
+            <p>Resolving action</p>
+          ) : props.pane.preview ? (
+            <ActionPreviewDetails preview={props.pane.preview} />
+          ) : null}
+        </section>
+      )}
+    </div>
+  );
+}
+
+function ActionRow(props: {
+  action: ActionView;
+  previewing: boolean;
+  running: boolean;
+  onPreview: () => void;
+  onRun: () => void;
+}) {
+  const summary = [
+    props.action.remoteCommand ? "remote" : null,
+    props.action.forwardCount ? `${props.action.forwardCount} forward${plural(props.action.forwardCount)}` : null,
+    props.action.hasLocalPrepare ? "prepare" : null,
+    props.action.hasLocalLaunch ? "launch" : null,
+    props.action.cleanupCount ? `${props.action.cleanupCount} cleanup` : null,
+  ].filter(Boolean);
+  return (
+    <div className="actionRow">
+      <div className="actionRowMain">
+        <strong>{props.action.name}</strong>
+        <small>{props.action.origin}</small>
+        <span>{summary.join(" · ") || "SSH action"}</span>
+      </div>
+      <div className="actionRowButtons">
+        <button className="iconOnlyButton" title="Preview action" disabled={props.previewing} onClick={props.onPreview}>
+          <Eye size={16} />
+        </button>
+        <button className="iconOnlyButton" title="Run action" disabled={props.running} onClick={props.onRun}>
+          <Play size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ActionPreviewDetails(props: { preview: ActionPlanView }) {
+  const ports = Object.entries(props.preview.allocatedPorts).sort(([left], [right]) => left.localeCompare(right));
+  return (
+    <div className="actionPreview">
+      {ports.length > 0 && (
+        <>
+          <h4>Allocated Ports</h4>
+          <code>{ports.map(([name, port]) => `${name}: ${port}`).join("\n")}</code>
+        </>
+      )}
+      {props.preview.localPrepare && (
+        <>
+          <h4>Local Prepare</h4>
+          <code>{props.preview.localPrepare.display}</code>
+        </>
+      )}
+      <h4>SSH Command</h4>
+      <code>{props.preview.sshCommand}</code>
+      {props.preview.tempConfigPath && (
+        <>
+          <h4>Temporary SSH Config</h4>
+          <code>{props.preview.tempConfigPath}</code>
+        </>
+      )}
+      {props.preview.localLaunch && (
+        <>
+          <h4>Local Launch</h4>
+          <code>{props.preview.localLaunch.display}</code>
+        </>
+      )}
+      {props.preview.cleanup.length > 0 && (
+        <>
+          <h4>Cleanup</h4>
+          <code>{props.preview.cleanup.map((command) => command.display).join("\n")}</code>
+        </>
+      )}
     </div>
   );
 }
@@ -2825,6 +3132,10 @@ function forwardErrors(forward: Forward) {
 
 function validPort(port: number) {
   return Number.isInteger(port) && port >= 1 && port <= 65535;
+}
+
+function plural(count: number) {
+  return count === 1 ? "" : "s";
 }
 
 function portFromInput(value: string) {

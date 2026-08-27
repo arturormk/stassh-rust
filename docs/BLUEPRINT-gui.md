@@ -309,9 +309,10 @@ The current core action model supports:
 * `{LOCAL_PORT:name}`,
 * and `{ENV:NAME}` template variables.
 
-The GUI should expose actions through a clear action palette, context menu, and
-host detail area. Running an action should create a visible session or run panel
-that shows:
+The GUI exposes actions from the host inspector. It lists common actions before
+host-specific actions, shows each action's origin, previews the resolved dry-run
+plan, and runs an action as a terminal session. Running an action should keep
+showing:
 
 * action name,
 * target host,
@@ -323,13 +324,13 @@ that shows:
 * cleanup status,
 * and error output or diagnostics when something fails.
 
-The action runner should retain the OpenSSH-first model while adding GUI process
+The action runner retains the OpenSSH-first model while adding GUI process
 management around it.
 
 Action authoring should remain JSON-first for now. The GUI can help by opening
 `vault.json` and `local.json`, copying schema-backed templates, validating
-actions, and previewing dry-run output, but a full structured action form editor
-is deferred because actions are programmable workflows rather than simple host
+actions, and previewing dry-run output. A full structured action form editor is
+deferred because actions are programmable workflows rather than simple host
 metadata.
 
 ## 3.10 Secrets

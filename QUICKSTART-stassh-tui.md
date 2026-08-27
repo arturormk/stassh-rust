@@ -351,6 +351,10 @@ In `stassh-tui`, highlight a host, press `a`, choose the action, and press
 itself when SSH exits. If a local viewer or wrapper script exits early, the CLI
 prints that status, which is useful when diagnosing forwarded VNC setup.
 
+In `stassh-gui`, select a host, open Actions from the inspector, and use
+Preview or Run on any common or host-specific action. Run opens the action as a
+terminal tab and keeps the SSH output visible in the workspace.
+
 ## 8. tmux and byobu
 
 `stassh-tui` works well inside `tmux` or byobu.

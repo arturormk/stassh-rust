@@ -1,18 +1,21 @@
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::process::{Child as ProcessChild, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde::{Deserialize, Serialize};
 use stassh_core::{
-    AddFolder, AddHost, ForwardDefinition, HostSelector, LocalConfig, SecretField, SecretsStore,
-    TempOpenSshConfig, UpdateHost, Vault, ensure_home_stassh_permissions, load_local_config,
-    load_secrets, load_vault, local_config_path, prepare_openssh_command, save_vault, secrets_path,
-    vault_path,
+    ActionDefinition, AddFolder, AddHost, ForwardDefinition, HostSelector, LocalConfig,
+    ResolvedActionPlan, ResolvedLocalCommand, SecretField, SecretsStore, TempOpenSshConfig,
+    UpdateHost, Vault, ensure_home_stassh_permissions, load_local_config, load_secrets, load_vault,
+    local_config_path, parse_prepare_env, prepare_openssh_command, resolve_action_local_prepare,
+    resolve_action_plan, save_vault, secrets_path, vault_path,
 };
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 use zeroize::Zeroize;
 
@@ -40,7 +43,10 @@ fn main() {
             host_secrets,
             reveal_host_secret,
             preview_ssh_command,
+            host_actions,
+            preview_action,
             start_ssh_session,
+            start_action_session,
             write_terminal,
             resize_terminal,
             close_session,
@@ -68,6 +74,8 @@ struct Session {
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn Child + Send + Sync>,
+    local_child: Option<ProcessChild>,
+    cleanup: Vec<ResolvedLocalCommand>,
     _temp_config: Option<TempOpenSshConfig>,
 }
 
@@ -154,6 +162,41 @@ struct JumpView {
 struct SshPreview {
     command: String,
     uses_temp_config: bool,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct ActionView {
+    id: Uuid,
+    name: String,
+    origin: &'static str,
+    remote_command: Option<String>,
+    has_local_prepare: bool,
+    has_local_launch: bool,
+    forward_count: usize,
+    cleanup_count: usize,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct LocalCommandView {
+    program: String,
+    args: Vec<String>,
+    env: HashMap<String, String>,
+    display: String,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct ActionPlanView {
+    action_name: String,
+    allocated_ports: HashMap<String, u16>,
+    ssh_command: String,
+    uses_temp_config: bool,
+    temp_config_path: Option<String>,
+    local_prepare: Option<LocalCommandView>,
+    local_launch: Option<LocalCommandView>,
+    cleanup: Vec<LocalCommandView>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -433,6 +476,154 @@ fn reveal_host_secret_value(
         .expose_str()
         .map(str::to_string)
         .map_err(error_message)
+}
+
+fn action_views(workspace: &Workspace, host_id: Uuid) -> Result<Vec<ActionView>, String> {
+    let host = workspace
+        .vault
+        .host(host_id)
+        .ok_or_else(|| format!("host not found: {host_id}"))?;
+    Ok(workspace
+        .vault
+        .actions
+        .iter()
+        .map(|action| action_view(action, "common"))
+        .chain(
+            host.actions
+                .iter()
+                .map(|action| action_view(action, "host")),
+        )
+        .collect())
+}
+
+fn action_view(action: &ActionDefinition, origin: &'static str) -> ActionView {
+    ActionView {
+        id: action.id,
+        name: action.name.clone(),
+        origin,
+        remote_command: action.remote_command.clone(),
+        has_local_prepare: action.local_prepare.is_some(),
+        has_local_launch: action.local_launch.is_some(),
+        forward_count: action.forwards.len(),
+        cleanup_count: action.cleanup.len(),
+    }
+}
+
+fn action_by_id(
+    workspace: &Workspace,
+    host_id: Uuid,
+    action_id: Uuid,
+) -> Result<ActionDefinition, String> {
+    let resolved = workspace
+        .vault
+        .resolve_host(HostSelector::Id(host_id))
+        .map_err(error_message)?;
+    resolved
+        .actions
+        .into_iter()
+        .find(|action| action.id == action_id)
+        .ok_or_else(|| format!("action not found: {action_id}"))
+}
+
+fn action_plan_view(plan: &ResolvedActionPlan) -> ActionPlanView {
+    ActionPlanView {
+        action_name: plan.action_name.clone(),
+        allocated_ports: plan.allocated_ports.clone(),
+        ssh_command: plan.ssh_command.render_for_display(),
+        uses_temp_config: plan.temp_config.is_some(),
+        temp_config_path: plan
+            .temp_config
+            .as_ref()
+            .map(|config| config.path().display().to_string()),
+        local_prepare: plan.local_prepare.as_ref().map(local_command_view),
+        local_launch: plan.local_launch.as_ref().map(local_command_view),
+        cleanup: plan.cleanup.iter().map(local_command_view).collect(),
+    }
+}
+
+fn local_command_view(command: &ResolvedLocalCommand) -> LocalCommandView {
+    LocalCommandView {
+        program: command.program.display().to_string(),
+        args: command.args.clone(),
+        env: command.env.clone(),
+        display: display_local_command(command),
+    }
+}
+
+fn run_action_prepare(
+    command: Option<&ResolvedLocalCommand>,
+) -> Result<HashMap<String, String>, String> {
+    let Some(command) = command else {
+        return Ok(HashMap::new());
+    };
+    let output = local_command(command)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|error| format!("failed to run local prepare: {error}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = stderr.trim();
+        if detail.is_empty() {
+            return Err(format!(
+                "local prepare exited with status {}",
+                output.status
+            ));
+        }
+        return Err(format!(
+            "local prepare exited with status {}: {detail}",
+            output.status
+        ));
+    }
+    Ok(parse_prepare_env(&String::from_utf8_lossy(&output.stdout)))
+}
+
+fn spawn_local_launch(
+    command: Option<&ResolvedLocalCommand>,
+) -> Result<Option<ProcessChild>, String> {
+    let Some(command) = command else {
+        return Ok(None);
+    };
+    local_command(command).spawn().map(Some).map_err(|error| {
+        format!(
+            "failed to launch local command {}: {error}",
+            display_local_command(command)
+        )
+    })
+}
+
+fn local_command(command: &ResolvedLocalCommand) -> Command {
+    let mut process = Command::new(&command.program);
+    process.args(&command.args).envs(&command.env);
+    process
+}
+
+fn display_local_command(command: &ResolvedLocalCommand) -> String {
+    let mut parts = vec![command.program.display().to_string()];
+    parts.extend(command.args.clone());
+    parts.join(" ")
+}
+
+fn cleanup_session(mut session: Session) {
+    let _ = session.child.kill();
+    if let Some(mut child) = session.local_child {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    for command in &session.cleanup {
+        let _ = local_command(command).status();
+    }
+}
+
+fn finish_session(state: &AppState, session_id: Uuid) {
+    let session = state
+        .sessions
+        .lock()
+        .ok()
+        .and_then(|mut sessions| sessions.remove(&session_id));
+    if let Some(session) = session {
+        cleanup_session(session);
+    }
 }
 
 fn workspace_with_state<T>(
@@ -846,6 +1037,30 @@ fn preview_ssh_command(host_id: Uuid, state: State<'_, AppState>) -> Result<SshP
 }
 
 #[tauri::command]
+fn host_actions(host_id: Uuid, state: State<'_, AppState>) -> Result<Vec<ActionView>, String> {
+    workspace_with_state(&state, |workspace| action_views(workspace, host_id))
+}
+
+#[tauri::command]
+fn preview_action(
+    host_id: Uuid,
+    action_id: Uuid,
+    state: State<'_, AppState>,
+) -> Result<ActionPlanView, String> {
+    workspace_with_state(&state, |workspace| {
+        let resolved = workspace
+            .vault
+            .resolve_host(HostSelector::Id(host_id))
+            .map_err(error_message)?;
+        let action = action_by_id(workspace, host_id, action_id)?;
+        let plan =
+            resolve_action_plan(&resolved, &action, &workspace.local_config, &HashMap::new())
+                .map_err(error_message)?;
+        Ok(action_plan_view(&plan))
+    })
+}
+
+#[tauri::command]
 fn start_ssh_session(
     host_id: Uuid,
     cols: u16,
@@ -863,6 +1078,66 @@ fn start_ssh_session(
         Ok((command.program, command.args, temp_config))
     })?;
 
+    start_terminal_session(
+        program,
+        args,
+        temp_config,
+        None,
+        Vec::new(),
+        cols,
+        rows,
+        app,
+        &state,
+    )
+}
+
+#[tauri::command]
+fn start_action_session(
+    host_id: Uuid,
+    action_id: Uuid,
+    cols: u16,
+    rows: u16,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Uuid, String> {
+    let plan = workspace_with_state(&state, |workspace| {
+        let resolved = workspace
+            .vault
+            .resolve_host(HostSelector::Id(host_id))
+            .map_err(error_message)?;
+        let action = action_by_id(workspace, host_id, action_id)?;
+        let local_prepare =
+            resolve_action_local_prepare(&resolved, &action, &workspace.local_config)
+                .map_err(error_message)?;
+        let prepare_env = run_action_prepare(local_prepare.as_ref())?;
+        resolve_action_plan(&resolved, &action, &workspace.local_config, &prepare_env)
+            .map_err(error_message)
+    })?;
+
+    start_terminal_session(
+        plan.ssh_command.program,
+        plan.ssh_command.args,
+        plan.temp_config,
+        plan.local_launch,
+        plan.cleanup,
+        cols,
+        rows,
+        app,
+        &state,
+    )
+}
+
+fn start_terminal_session(
+    program: OsString,
+    args: Vec<OsString>,
+    temp_config: Option<TempOpenSshConfig>,
+    local_launch: Option<ResolvedLocalCommand>,
+    cleanup: Vec<ResolvedLocalCommand>,
+    cols: u16,
+    rows: u16,
+    app: AppHandle,
+    state: &State<'_, AppState>,
+) -> Result<Uuid, String> {
     let session_id = Uuid::new_v4();
     let pty = native_pty_system();
     let pair = pty
@@ -875,8 +1150,15 @@ fn start_ssh_session(
         .map_err(error_message)?;
     let mut command = CommandBuilder::new(program);
     command.args(args);
-    let child = pair.slave.spawn_command(command).map_err(error_message)?;
+    let mut child = pair.slave.spawn_command(command).map_err(error_message)?;
     drop(pair.slave);
+    let local_child = match spawn_local_launch(local_launch.as_ref()) {
+        Ok(child) => child,
+        Err(error) => {
+            let _ = child.kill();
+            return Err(error);
+        }
+    };
 
     let mut reader = pair.master.try_clone_reader().map_err(error_message)?;
     let writer = Arc::new(Mutex::new(
@@ -888,6 +1170,8 @@ fn start_ssh_session(
             master: pair.master,
             writer: writer.clone(),
             child,
+            local_child,
+            cleanup,
             _temp_config: temp_config,
         },
     );
@@ -909,10 +1193,12 @@ fn start_ssh_session(
                             message: format!("terminal read failed: {error}"),
                         },
                     );
+                    finish_session(app.state::<AppState>().inner(), session_id);
                     return;
                 }
             }
         }
+        finish_session(app.state::<AppState>().inner(), session_id);
         let _ = app.emit(
             "session-exit",
             SessionExit {
@@ -970,13 +1256,13 @@ fn resize_terminal(
 
 #[tauri::command]
 fn close_session(session_id: Uuid, state: State<'_, AppState>) -> Result<(), String> {
-    let mut session = state
+    let session = state
         .sessions
         .lock()
         .map_err(error_message)?
         .remove(&session_id)
         .ok_or_else(|| format!("session not found: {session_id}"))?;
-    let _ = session.child.kill();
+    cleanup_session(session);
     Ok(())
 }
 
@@ -1036,6 +1322,102 @@ mod tests {
             },
             host.id,
         )
+    }
+
+    fn workspace_with_actions() -> (Workspace, Uuid, Uuid, Uuid) {
+        let mut vault = Vault::new();
+        let common_action_id = Uuid::from_u128(0x11111111111111111111111111111111);
+        let host_action_id = Uuid::from_u128(0x22222222222222222222222222222222);
+        vault.actions.push(ActionDefinition {
+            id: common_action_id,
+            name: "Uptime".to_string(),
+            local_prepare: None,
+            forwards: Vec::new(),
+            remote_command: Some("uptime".to_string()),
+            local_launch: None,
+            cleanup: Vec::new(),
+        });
+        let host = vault
+            .add_host(AddHost {
+                folder_id: None,
+                display_name: "web".to_string(),
+                hostname: "web.example".to_string(),
+                port: Some(22),
+                username: Some("deploy".to_string()),
+                identity_fingerprint: None,
+                secrets: None,
+                jump_chain: Vec::new(),
+                ssh_options: Vec::new(),
+                forwards: Vec::new(),
+                tags: Vec::new(),
+                notes: None,
+            })
+            .unwrap();
+        vault
+            .update_host(
+                HostSelector::Id(host.id),
+                UpdateHost {
+                    actions: Some(vec![ActionDefinition {
+                        id: host_action_id,
+                        name: "Disk".to_string(),
+                        local_prepare: None,
+                        forwards: Vec::new(),
+                        remote_command: Some("df -h".to_string()),
+                        local_launch: None,
+                        cleanup: Vec::new(),
+                    }]),
+                    ..UpdateHost::default()
+                },
+            )
+            .unwrap();
+
+        (
+            Workspace {
+                vault_path: "vault.json".into(),
+                local_config_path: "local.json".into(),
+                secrets_path: "secrets.json".into(),
+                vault,
+                local_config: LocalConfig::new(),
+                secrets_store: None,
+            },
+            host.id,
+            common_action_id,
+            host_action_id,
+        )
+    }
+
+    #[test]
+    fn action_views_list_common_before_host_actions() {
+        let (workspace, host_id, common_action_id, host_action_id) = workspace_with_actions();
+
+        let actions = action_views(&workspace, host_id).unwrap();
+
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0].id, common_action_id);
+        assert_eq!(actions[0].origin, "common");
+        assert_eq!(actions[1].id, host_action_id);
+        assert_eq!(actions[1].origin, "host");
+    }
+
+    #[test]
+    fn action_plan_view_reports_resolved_dry_run_command() {
+        let (workspace, host_id, _common_action_id, host_action_id) = workspace_with_actions();
+        let resolved = workspace
+            .vault
+            .resolve_host(HostSelector::Id(host_id))
+            .unwrap();
+        let action = action_by_id(&workspace, host_id, host_action_id).unwrap();
+        let plan =
+            resolve_action_plan(&resolved, &action, &workspace.local_config, &HashMap::new())
+                .unwrap();
+
+        let view = action_plan_view(&plan);
+
+        assert_eq!(view.action_name, "Disk");
+        assert!(view.ssh_command.contains("web.example"));
+        assert!(view.ssh_command.contains("df -h"));
+        assert_eq!(view.local_prepare, None);
+        assert_eq!(view.local_launch, None);
     }
 
     #[test]

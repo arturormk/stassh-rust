@@ -1,9 +1,9 @@
 # HOWTO: Actions
 
 Actions are reusable SSH workflows stored in `vault.json`. They are meant for
-users who are comfortable with SSH, local scripts, and JSON. The TUI can run
-actions, but action authoring is currently JSON-first so that complex workflows
-stay explicit and inspectable.
+users who are comfortable with SSH, local scripts, and JSON. The CLI, TUI, and
+GUI can run actions, but action authoring is currently JSON-first so that
+complex workflows stay explicit and inspectable.
 
 An action can:
 
@@ -22,6 +22,11 @@ stassh --output json action web "Action name" --dry-run
 
 Dry-run output shows allocated automatic ports, the rendered SSH command, and
 the rendered local commands without opening SSH or launching local tools.
+
+In the GUI, select a host, open the inspector's Actions pane, then use Preview
+to inspect the resolved dry-run plan or Run to open the action as a terminal
+session. GUI action runs use the same vault and local capability resolution as
+the CLI and TUI.
 
 ## Where Actions Live
 

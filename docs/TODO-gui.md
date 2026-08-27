@@ -44,17 +44,15 @@ Secrets. Keep it in the repo while there are open GUI items.
   folders, inline validation, and keyboard paths for high-frequency workflows
   such as connect, edit, diagnostics, reload, and move.
 
-- Action running and JSON-first authoring support.
-  The GUI should provide a strong action-running surface for the selected host:
-  list common and host-specific actions, show their origin, run them through the
-  shared core action path, and offer a dry-run/inspect view with resolved SSH
-  commands, temporary forwards, allocated ports, local launch commands, cleanup,
-  and missing capability diagnostics. Full structured action editing is deferred.
-  Actions remain JSON-first because they are programmable workflows with remote
-  commands, local tools, templating, forwards, cleanup, and machine-local
-  capability assumptions. GUI authoring help should focus on opening
-  `vault.json`/`local.json`, copying templates, and validating or previewing
-  JSON rather than building a form editor for the whole schema.
+- Action authoring support.
+  The GUI can now list common and host-specific actions for the selected host,
+  show their origin, preview the resolved dry-run plan, and run them as terminal
+  sessions. Full structured action editing is still deferred. Actions remain
+  JSON-first because they are programmable workflows with remote commands, local
+  tools, templating, forwards, cleanup, and machine-local capability
+  assumptions. GUI authoring help should focus on opening `vault.json` and
+  `local.json`, copying templates, and validating or previewing JSON rather than
+  building a form editor for the whole schema.
 
 - Resource awareness and TUI fallback.
   Add startup or first-run checks for very small screens, insufficient memory,

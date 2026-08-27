@@ -739,6 +739,62 @@ code {
   gap: 6px;
 }
 
+.actionList {
+  display: grid;
+  gap: 8px;
+}
+
+.actionRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #2d333c;
+  border-radius: 6px;
+  background: #171b21;
+  padding: 8px;
+}
+
+.actionRowMain {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.actionRowMain strong {
+  overflow: hidden;
+  color: #e8edf3;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actionRowMain small,
+.actionRowMain span {
+  overflow: hidden;
+  color: #94a0ad;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actionRowButtons {
+  display: flex;
+  gap: 6px;
+}
+
+.actionPreview {
+  display: grid;
+  gap: 7px;
+}
+
+.actionPreview h4 {
+  margin: 4px 0 -2px;
+  color: #94a0ad;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .editor label {
   color: #aab5c2;
   font-size: 13px;
