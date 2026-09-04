@@ -73,8 +73,6 @@ Implemented now:
 
 Not implemented yet:
 
-- encrypted vaults
-- synchronization journals
 - automatic identity discovery by scanning `~/.ssh` or `ssh-agent`
 - action authoring helpers that preserve JSON-first workflow definitions
 
@@ -203,8 +201,9 @@ By default, new setups use:
 ~/.ssh/stassh/secrets.json
 ```
 
-This makes syncing a personal SSH workspace between machines as simple as copying
-`~/.ssh/stassh/`. Existing project-local vaults remain supported.
+This makes carrying or syncing a personal SSH workspace between machines as
+simple as copying `~/.ssh/stassh/` with whatever file-copy, backup, or sync
+tool the user already trusts. Existing project-local vaults remain supported.
 
 On Unix-like systems, `stassh` and `stassh-tui` require safe permissions for the
 default home configuration directory:

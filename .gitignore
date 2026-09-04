@@ -9,5 +9,6 @@
 # GUI frontend build and dependency artifacts.
 /apps/stassh-gui/node_modules/
 /apps/stassh-gui/dist/
+/apps/stassh-gui/test-results/
 /apps/stassh-gui/src-tauri/gen/
 /.stassh-gui-dev/

@@ -46,7 +46,7 @@ The first useful version includes:
 - TUI browse/search/connect basics
 - GUI browsing, editing, embedded terminal sessions, terminal layouts, and
   screenshot-safe simulation mode
-- encrypted portable vault support as soon as storage stabilizes
+- optional encrypted `secrets.json` support for fallback operational secrets
 
 The CLI, TUI, and GUI now form complementary entry points over the same portable
 workspace rather than a sequence where the GUI is expected to arrive later.
@@ -62,6 +62,8 @@ Do not prioritize these in the initial implementation:
 - monitoring dashboards
 - embedded VNC/RDP/browser implementations
 - stored passwords
+- built-in vault synchronization or merge journals
+- encrypted whole-vault storage for non-secret host metadata
 - plugin marketplace
 - AI assistant
 - infrastructure discovery crawler

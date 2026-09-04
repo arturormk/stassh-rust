@@ -10,9 +10,14 @@ Avoid exaggerated security claims. Documentation and diagnostics should be expli
 
 Portable vault mode is intended for trusted or reasonably trusted computers.
 
-An encrypted vault does not make an untrusted computer safe. A malicious host can capture passphrases, inspect decrypted data, intercept keystrokes, hijack sessions, copy ordinary private keys, or manipulate launched programs.
+Encrypting more local files would not make an untrusted computer safe. A
+malicious host can inspect files after unlock or copy, intercept keystrokes,
+hijack sessions, copy ordinary private keys, or manipulate launched programs.
 
-Portable mode should reduce practical residue by avoiding persistent recent-host lists, search history, decrypted caches, vault passphrases, generated SSH configs, portable identity paths, and action history where reasonable.
+Portable mode should reduce practical residue by avoiding persistent recent-host
+lists, search history, decrypted secrets caches, secrets-store passphrases,
+generated SSH configs, portable identity paths, and action history where
+reasonable.
 
 ## Host-Key Verification
 
@@ -34,9 +39,8 @@ Agent-based and hardware-backed identities are normal identity sources, not spec
 
 Keep sensitive material primarily in Rust/backend code:
 
-- vault passphrases
-- decrypted vault keys
-- decrypted records
+- secrets-store passphrases
+- decrypted secrets records
 - private operational data
 - identity paths where unnecessary for display
 
@@ -54,6 +58,8 @@ Diagnostic output should explain resolved behavior without leaking secret values
 
 ## Recovery
 
-There should be no misleading passphrase recovery promise. If the vault encryption is implemented correctly and the passphrase is lost with no cached or alternate unlock key, recovery may be impossible.
+There should be no misleading passphrase recovery promise for
+`secrets.json`. If its encryption is implemented correctly and the passphrase is
+lost with no cached or alternate unlock key, recovery may be impossible.
 
 OS credential-store integration may be added later as an optional machine-local convenience. Portable mode should avoid persistent unlock storage by default.

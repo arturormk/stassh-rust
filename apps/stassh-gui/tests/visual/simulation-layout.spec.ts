@@ -138,6 +138,51 @@ test("captures a layout created by dragging one terminal tab onto another", asyn
   await expect(page.getByTestId("terminal-stage-panel")).toHaveScreenshot("simulation-drag-created-layout.png");
 });
 
+test("preserves tab contents when layout tabs are reordered", async ({ page }) => {
+  await openSimulationTerminals(page, ["web-prod-01", "db-prod-01"]);
+  await page.getByTestId("create-layout-tab").click();
+  await expect(page.getByTestId("tab-Layout 1")).toBeVisible();
+  await page.getByTestId("tab-web-prod-01").click();
+  await page.getByTestId("create-layout-tab").click();
+  await expect(page.getByTestId("tab-Layout 2")).toBeVisible();
+
+  await expect(tabTitles(page)).resolves.toEqual(["web-prod-01", "db-prod-01", "Layout 1", "Layout 2"]);
+  await dragTabOnto(page, "Layout 2", "Layout 1");
+  await expect(tabTitles(page)).resolves.toEqual(["web-prod-01", "db-prod-01", "Layout 2", "Layout 1"]);
+
+  await page.getByTestId("tab-web-prod-01").click();
+  await expect(page.getByTestId("terminal-pane-web-prod-01")).toContainText("stassh simulation mode");
+  await page.getByTestId("tab-db-prod-01").click();
+  await expect(page.getByTestId("terminal-pane-db-prod-01")).toContainText("stassh simulation mode");
+});
+
+test("preserves terminal scrollback across layout tab changes", async ({ page }) => {
+  await openSimulationTerminals(page, ["web-prod-01", "db-prod-01"]);
+  await page.getByTestId("tab-web-prod-01").click();
+  await expect(page.getByTestId("terminal-pane-web-prod-01")).toContainText("stassh simulation mode");
+  await page.getByTestId("terminal-pane-web-prod-01").click();
+
+  const sentinel = "scrollback-sentinel-1842";
+  const sessionId = await terminalSessionId(page, "web-prod-01");
+  await page.evaluate(
+    ({ sessionId, sentinel }) => {
+      const noise = Array.from({ length: 48 }, (_, index) => `noise-line-${index}`).join("\r\n");
+      window.dispatchEvent(new CustomEvent(`terminal-data:${sessionId}`, { detail: `${sentinel}\r\n${noise}\r\n` }));
+    },
+    { sessionId, sentinel },
+  );
+
+  await page.getByTestId("create-layout-tab").click();
+  await expect(page.getByTestId("layout-toolbar")).toBeVisible();
+  await page.getByTestId("tab-db-prod-01").click();
+  await expect(page.getByTestId("terminal-pane-db-prod-01")).toBeVisible();
+  await page.getByTestId("tab-web-prod-01").click();
+  await page.getByTestId("terminal-find-button-web-prod-01").click();
+  await page.getByTestId("terminal-find-input-web-prod-01").fill(sentinel);
+
+  await expect(page.getByTestId("terminal-pane-web-prod-01").locator(".terminalFindCount")).toHaveText("Match");
+});
+
 async function installTauriMock(page: Page) {
   await page.addInitScript(({ snapshot }) => {
     const listeners = new Map<string, Set<Listener>>();
@@ -236,6 +281,23 @@ async function dragTabOnto(page: Page, sourceTitle: string, targetTitle: string)
   await page.mouse.move(sourceX + 12, sourceY, { steps: 4 });
   await page.mouse.move(targetX, targetY, { steps: 12 });
   await page.mouse.up();
+}
+
+async function tabTitles(page: Page) {
+  return page.getByTestId("tabbar").locator('button[data-testid^="tab-"]').evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const testId = button.getAttribute("data-testid") ?? "";
+      const title = testId.replace(/^tab-/, "");
+      if (!title) throw new Error("tab title not found");
+      return title;
+    }),
+  );
+}
+
+async function terminalSessionId(page: Page, title: string) {
+  const sessionId = await page.getByTestId(`tab-${title}`).getAttribute("data-tab-id");
+  if (!sessionId) throw new Error(`terminal session id not found for ${title}`);
+  return sessionId;
 }
 
 async function openSimulationTerminals(page: Page, names: string[]) {

@@ -4,7 +4,7 @@
 
 `stassh`, `stassh-tui`, and `stassh-gui` are first-class frontends over the same vault and core logic.
 
-All frontends should understand the same synchronized records and resolved host behavior. They may differ in workflow depth and visual richness, but they must not create incompatible data.
+All frontends should understand the same portable records and resolved host behavior. They may differ in workflow depth and visual richness, but they must not create incompatible data.
 
 ## CLI
 

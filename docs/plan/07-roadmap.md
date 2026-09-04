@@ -13,7 +13,7 @@
 - Use stable IDs independent of names and paths.
 - Add validation and resolved host output.
 - Add a simple local storage format with explicit versioning.
-- Keep storage replaceable so encrypted vaults and operation journals can follow.
+- Keep storage plain, inspectable, and recoverable.
 
 ## Milestone 2: OpenSSH Orchestration And CLI
 
@@ -36,21 +36,21 @@
 - Suspend the TUI while OpenSSH owns the terminal, then restore it after SSH exits.
 - Add basic edit/create/delete once storage semantics are stable.
 
-## Milestone 5: Encrypted Portable Vault
+## Milestone 5: Host-Associated Secrets
 
-- Add vault manifest and format version.
-- Add passphrase-based unlock with memory-hard KDF and wrapped vault key.
-- Encrypt synchronized records.
-- Support opening a vault from any directory.
-- Add lock behavior that clears frontend vault state and removes temporary session files.
+- Add optional encrypted `secrets.json` storage for fallback operational
+  secrets.
+- Keep `vault.json` as non-secret portable metadata.
+- Support deliberate reveal/hide workflows from the frontends.
+- Keep ordinary SSH operation independent from unlocking secrets.
 
-## Milestone 6: Sync Semantics
+## Milestone 6: Portability And Backup Hygiene
 
-- Add device identity.
-- Implement append-only per-device operation journals.
-- Add create/update/delete/move operations and tombstones.
-- Add deterministic merge behavior and basic conflict reporting.
-- Add snapshots only after operation replay behavior is tested.
+- Treat `vault.json`, `local.json`, and `secrets.json` as user-owned files that
+  can be copied, backed up, or synced by external tools.
+- Avoid app-defined synchronization protocols, merge journals, and hosted sync.
+- Validate files on load and report external-edit conflicts clearly.
+- Preserve backups around risky migrations or writes.
 
 ## Milestone 6.5: Shared Simulation
 
@@ -85,8 +85,8 @@
 Future GUI polish:
 
 - Add stronger JSON-first action authoring support.
-- Expand automated visual regression coverage for tab reordering, scrollback
-  preservation, and optional full Tauri headless smoke checks.
+- Expand automated visual regression coverage with optional full Tauri headless
+  smoke checks.
 - Keep the README screenshots in `examples/github-screenshot/` captured from
   `./run-stassh-tui-dev.sh --simulation` and
   `./run-stassh-gui-dev.sh --simulation`.

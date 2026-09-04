@@ -27,7 +27,7 @@ The core crate owns:
 - identity references and local resolution interfaces
 - OpenSSH command/config generation
 - vault loading/saving abstractions
-- synchronization semantics
+- portable file loading/saving semantics
 - action and forwarding definitions
 - diagnostics data structures
 
@@ -63,7 +63,7 @@ Avoid large dependencies for trivial behavior, especially in `stassh-core`, `sta
 
 Linux is the first implementation target. The core should avoid assumptions that block future macOS or Windows support:
 
-- no Unix-only path model in synchronized records
+- no Unix-only path model in portable records
 - no reliance on symlinks, hard links, extended attributes, or POSIX-only locks in portable vaults
 - configurable OpenSSH binary path
 - no required daemon

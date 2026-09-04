@@ -307,8 +307,8 @@ A conceptual architecture may look like:
                          │                    │
                          │ domain model       │
                          │ vault              │
-                         │ encryption         │
-                         │ sync semantics     │
+                         │ secrets encryption │
+                         │ portable storage   │
                          │ identity discovery │
                          │ SSH generation     │
                          │ actions            │
@@ -430,7 +430,6 @@ ForwardDefinition
 Action
 Tag
 Vault
-SyncOperation
 ```
 
 Other entities may emerge later.
@@ -1127,7 +1126,7 @@ Potentially avoid persisting:
 * recently accessed hosts,
 * search history,
 * decrypted cache data,
-* vault passphrases,
+* secrets-store passphrases,
 * generated SSH configuration,
 * portable identity paths,
 * action execution history.
@@ -1200,12 +1199,12 @@ This keeps infrastructure metadata and authentication material physically separa
 
 Documentation must state this clearly.
 
-An encrypted vault does not make an arbitrary compromised computer safe.
+Encrypting local configuration files does not make an arbitrary compromised computer safe.
 
 A malicious host machine can potentially:
 
-* capture the vault passphrase,
-* inspect decrypted configuration,
+* capture secrets-store passphrases,
+* inspect local configuration,
 * intercept keystrokes,
 * hijack SSH sessions,
 * copy conventional private keys,
@@ -1236,8 +1235,8 @@ Potential behavior:
 1. stop or detach managed sessions according to policy,
 2. close active forwarding processes where appropriate,
 3. remove temporary SSH configuration,
-4. release decrypted vault material,
-5. forget the passphrase,
+4. release decrypted secrets material,
+5. forget the secrets passphrase,
 6. clear vault-specific frontend state,
 7. return to a no-vault-open screen.
 
@@ -1251,58 +1250,39 @@ operation may be useful for removable storage.
 
 ---
 
-# 32. Vault Encryption
+# 32. Vault Privacy Boundary
 
-The synchronized/portable host configuration should be encryptable using a common passphrase.
+The portable host configuration is not intended to be a secrets database.
 
-A strong conceptual design is:
+`vault.json` contains operational metadata:
 
 ```text
-user passphrase
-    ↓
-memory-hard password KDF
-    ↓
-key-encryption key
-    ↓
-decrypt random vault key
-    ↓
-vault key encrypts actual records
+folders
+host labels
+hostnames or aliases
+usernames
+identity fingerprints
+jump chains
+forwards
+actions
+tags
+notes
 ```
 
-This is preferable to deriving the encryption key directly for every record.
+This data may still be private in an everyday sense, but the project should not
+pretend that encrypting the whole vault is the primary security boundary. Actual
+private keys remain system-installed and protected by OpenSSH/OS mechanisms.
+Actual IP addresses can be deferred to DNS, `/etc/hosts`, or other local naming
+systems when a user wants to avoid putting them in the vault.
 
-It allows the passphrase to be changed by rewrapping the vault key rather than re-encrypting the entire data set.
+The file that stores explicit fallback operational secrets is `secrets.json`,
+and those secret fields should be encrypted.
 
-A likely password KDF would be something modern and memory-hard, such as Argon2id.
-
-A modern authenticated encryption scheme should be used.
-
-Exact cryptographic crate and format selection should be based on mature implementations and security review.
-
-Do not invent custom cryptography.
+Whole-vault encryption is out of scope unless the product goals change.
 
 ---
 
-# 33. Vault Metadata
-
-An unencrypted vault manifest may need to contain non-secret metadata such as:
-
-```text
-format identifier
-format version
-KDF algorithm
-KDF parameters
-salt
-encrypted vault key
-```
-
-It should not expose host inventory.
-
-The manifest should allow the program to determine how to unlock and migrate the vault.
-
----
-
-# 34. Vault Versioning
+# 33. Vault Versioning
 
 The vault format must be versioned from the beginning.
 
@@ -1311,14 +1291,15 @@ Even experimental versions should explicitly identify the format.
 Example:
 
 ```text
-vault_format = 1
+format_version = 1
 ```
 
 or equivalent.
 
 The project may remain in active use for many years.
 
-Schema migration should therefore be considered part of the architecture rather than an afterthought.
+Schema migration should therefore be considered part of the architecture rather
+than an afterthought.
 
 A good migration system should ideally:
 
@@ -1330,11 +1311,21 @@ A good migration system should ideally:
 
 ---
 
-# 35. Synchronization Philosophy
+# 34. User-Managed Copying And Sync
 
-The project should support synchronization without implementing a proprietary synchronization service.
+The project should not implement a proprietary synchronization service.
 
-The application should define **what synchronization means**, not necessarily how bytes reach another machine.
+It also should not define app-specific synchronization semantics, device
+identities, operation journals, tombstones, or merge protocols as a core
+requirement.
+
+The intended model is simpler:
+
+```text
+The user owns a small set of JSON files.
+The user copies, backs up, or syncs those files with whatever tool they trust.
+Stassh validates what it loads and avoids silent destructive overwrites.
+```
 
 Possible external transports include:
 
@@ -1353,154 +1344,26 @@ The project should remain agnostic.
 
 ---
 
-# 36. Synchronization Semantics Before Transport
+# 35. External Conflict Handling
 
-Do not begin by creating provider integrations.
+Two devices may edit the same file while offline.
 
-First define standardized semantics for:
+Stassh should not try to be a general merge engine for that situation.
 
-```text
-create
-update
-delete
-move
-rename
-conflict
-tombstone
-device identity
-operation identity
-```
+Instead, it should make local file handling boring and inspectable:
 
-If these semantics are robust, many external tools can move the data without the application needing to know how.
+* reload files before writes when practical,
+* write atomically where the platform supports it,
+* preserve backups around migrations or risky writes,
+* report parse and validation errors clearly,
+* and avoid silently overwriting external edits.
+
+Users who need multi-machine coordination can choose an external tool whose
+conflict behavior they understand.
 
 ---
 
-# 37. Append-Only Operation Log
-
-A promising synchronization representation is an append-only per-device operation journal.
-
-Conceptually:
-
-```text
-vault/
-├── manifest
-├── snapshot
-└── devices/
-    ├── device-a/
-    │   ├── 00000001.op
-    │   ├── 00000002.op
-    │   └── 00000003.op
-    │
-    └── device-b/
-        ├── 00000001.op
-        └── 00000002.op
-```
-
-Each device only appends operations under its own identity.
-
-External synchronization tools then merge files rather than trying to coordinate writes into one database file.
-
-This can dramatically reduce synchronization conflicts.
-
-The exact file layout may differ.
-
----
-
-# 38. Sync Operation Model
-
-An operation might conceptually contain:
-
-```text
-operation_id
-device_id
-sequence_number
-timestamp
-entity_type
-entity_id
-operation_type
-payload
-```
-
-Possible operation types:
-
-```text
-create
-update
-delete
-move
-```
-
-The design should avoid relying solely on wall-clock timestamps because computer clocks may differ.
-
-Stable operation IDs and device-local monotonic sequence values are likely useful.
-
----
-
-# 39. Deletion and Tombstones
-
-Deletion must synchronize correctly.
-
-Physically removing an entity without recording the deletion could allow an old offline device to later reintroduce it.
-
-Deletes should therefore be represented as tombstones or equivalent durable operations.
-
-An old laptop returning after six months should not resurrect hosts that were intentionally deleted.
-
----
-
-# 40. Conflict Handling
-
-Two devices may edit the same host while offline.
-
-The project does not necessarily require sophisticated CRDT machinery.
-
-However, conflicts should be:
-
-* deterministic,
-* detectable,
-* recoverable,
-* understandable,
-* and never silently destructive.
-
-Possible strategies include:
-
-* field-level last-writer rules,
-* operation ordering,
-* explicit conflict objects,
-* preserved previous versions,
-* or combinations of these.
-
-The initial strategy should be kept as simple as possible while remaining safe.
-
-Retaining enough history to explain what happened may be more valuable than attempting invisible cleverness.
-
----
-
-# 41. Snapshots and Compaction
-
-An append-only operation history will eventually grow.
-
-The vault may periodically generate compact snapshots.
-
-Conceptually:
-
-```text
-snapshot + recent operation journal
-```
-
-Older operations may eventually be compacted after sufficient safety guarantees exist.
-
-Compaction must not break multi-device synchronization.
-
-It is acceptable for early versions to postpone aggressive compaction.
-
-Configuration data is small.
-
-Correctness matters more than saving a few megabytes.
-
----
-
-# 42. USB Storage Considerations
+# 36. USB Storage Considerations
 
 The vault should perform well on inexpensive USB 2.0 flash storage.
 
@@ -1853,7 +1716,7 @@ Sensitive data should remain outside the GUI frontend whenever practical.
 
 Private keys should not be read into WebView JavaScript.
 
-Vault passphrases should spend as little time as possible in frontend state.
+Secrets-store passphrases should spend as little time as possible in frontend state.
 
 Generated private operational data should stay primarily in Rust backend memory.
 
@@ -1865,10 +1728,9 @@ The GUI should receive only what it needs to present.
 
 The project should make reasonable efforts to minimize lifetime of:
 
-* vault passphrases,
-* decrypted vault keys,
+* secrets-store passphrases,
 * sensitive temporary values,
-* and decrypted records.
+* and decrypted secrets records.
 
 Do not promise perfect memory erasure across all platforms.
 
@@ -2176,8 +2038,8 @@ Useful diagnostic information might include:
 * forwarding definitions,
 * local capability mappings,
 * known-host file,
-* operation-log status,
-* and sync conflicts.
+* file validation status,
+* and external file conflicts.
 
 Secrets should be redacted.
 
@@ -2197,7 +2059,7 @@ Examples:
 * show local forwarding port,
 * show remote command being executed,
 * show local viewer command,
-* show synchronization conflict,
+* show external file conflict,
 * show which local override is active.
 
 This is a tool for technically capable users.
@@ -2553,16 +2415,16 @@ A strong first usable milestone could include:
 
 ## Vault
 
-* encrypted configuration,
+* plain portable configuration,
 * explicit format version,
 * open from arbitrary path,
 * portable vault support.
 
-## Synchronization
+## Copying And Backup
 
-* standardized create/update/delete operation semantics,
-* filesystem-based operation journal,
-* no proprietary transport.
+* user-owned JSON files,
+* compatibility with ordinary copy, backup, and sync tools,
+* no proprietary transport or app-defined merge protocol.
 
 This is already a substantial project.
 
@@ -2781,23 +2643,22 @@ Do not overbuild it initially.
 
 ---
 
-# 95. Passphrase Change
+# 95. Secrets Passphrase Change
 
-Changing a vault passphrase should ideally only re-encrypt the random vault key.
+Changing a secrets-store passphrase should preserve stored secret fields and
+avoid exposing plaintext beyond the active operation.
 
-It should not require rewriting every encrypted record.
-
-This is one reason for key wrapping.
-
-The user should be encouraged to keep backups before cryptographic metadata changes.
+The user should be encouraged to keep backups before cryptographic metadata
+changes.
 
 ---
 
-# 96. Forgotten Passphrases
+# 96. Forgotten Secrets Passphrases
 
 There should be no misleading recovery promise.
 
-If the vault encryption is designed correctly and the passphrase is lost with no cached or alternate key, recovery may be impossible.
+If `secrets.json` encryption is designed correctly and the passphrase is lost
+with no cached or alternate key, recovery may be impossible.
 
 Documentation should state this clearly.
 
@@ -3316,8 +3177,8 @@ Examples:
 5. How gracefully can the TUI suspend and restore around OpenSSH?
 6. How well does key fingerprint discovery work across real user setups?
 7. How should agent identities be mapped?
-8. How reliable is the operation-journal approach under Syncthing?
-9. What locking behavior works on exFAT?
+8. What external file-conflict patterns should the app detect clearly?
+9. What atomic-write behavior works on exFAT?
 10. What happens when a USB vault disappears mid-write?
 11. What is the best practical conflict-resolution model?
 12. What are realistic minimum glibc and CPU targets?

@@ -14,8 +14,8 @@ Cover:
 - forward rendering
 - vault manifest parsing
 - encryption wrapper behavior
-- operation replay and merge ordering
-- tombstones and deletion behavior
+- `secrets.json` encryption/decryption behavior
+- backup and validation behavior around file writes
 
 ## Integration Tests
 
@@ -32,7 +32,7 @@ Cover:
 - portable vault open/lock flows
 - interrupted writes
 - concurrent vault access
-- partial operation files
+- externally modified file handling
 - removable-storage disappearance where it can be simulated
 
 ## End-To-End Tests
