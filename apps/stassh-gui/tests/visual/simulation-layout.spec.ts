@@ -71,8 +71,12 @@ const snapshot = {
   diagnostics: [
     {
       severity: "warning",
-      message: "Host db-prod-01 references missing identity mapping SHA256:sim-missing",
+      kind: "missingIdentityMapping",
+      title: "Missing identity mapping",
+      message: "Root / Production / db-prod-01 references SHA256:sim-missing, but this machine has no local key path mapped for it.",
+      remediation: "Open the host identity editor and choose a local key for this fingerprint.",
       hostId: ids.db,
+      path: "SHA256:sim-missing",
     },
   ],
 };
@@ -136,6 +140,16 @@ test("captures a layout created by dragging one terminal tab onto another", asyn
   await expect(page.getByTestId("layout-toolbar")).toBeVisible();
   await page.waitForTimeout(1_100);
   await expect(page.getByTestId("terminal-stage-panel")).toHaveScreenshot("simulation-drag-created-layout.png");
+});
+
+test("diagnostics show remediation and navigate to the affected host", async ({ page }) => {
+  await expect(page.getByText("Missing identity mapping")).toBeVisible();
+  await expect(page.getByText("Open the host identity editor and choose a local key for this fingerprint.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Select host" }).click();
+
+  await expect(page.getByTestId("host-row-db-prod-01")).toHaveClass(/active/);
+  await expect(page.getByRole("heading", { name: "db-prod-01" })).toBeVisible();
 });
 
 test("preserves tab contents when layout tabs are reordered", async ({ page }) => {

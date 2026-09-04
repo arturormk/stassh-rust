@@ -92,8 +92,12 @@ type IdentityView = {
 
 type DiagnosticView = {
   severity: "warning" | "error";
+  kind: string;
+  title: string;
   message: string;
+  remediation: string;
   hostId: Id | null;
+  path: string | null;
 };
 
 type WorkspaceSnapshot = {
@@ -276,6 +280,27 @@ function isTerminalExited(tab: Extract<Tab, { type: "terminal" }>) {
   return tab.status !== "running";
 }
 
+function summarizeDiagnostics(diagnostics: DiagnosticView[]) {
+  const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error").length;
+  const warnings = diagnostics.filter((diagnostic) => diagnostic.severity === "warning").length;
+  if (!errors && !warnings) return "No diagnostics";
+  const parts = [];
+  if (errors) parts.push(`${errors} ${errors === 1 ? "error" : "errors"}`);
+  if (warnings) parts.push(`${warnings} ${warnings === 1 ? "warning" : "warnings"}`);
+  return parts.join(", ");
+}
+
+function folderAncestorIds(folders: FolderView[], folderId: Id) {
+  const foldersById = new Map(folders.map((folder) => [folder.id, folder]));
+  const ids: Id[] = [];
+  let current = foldersById.get(folderId) ?? null;
+  while (current) {
+    ids.push(current.id);
+    current = current.parentId ? foldersById.get(current.parentId) ?? null : null;
+  }
+  return ids;
+}
+
 function App() {
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -445,6 +470,21 @@ function App() {
     }
     return counts;
   }, [tabs]);
+  const diagnosticSummary = useMemo(() => summarizeDiagnostics(workspace?.diagnostics ?? []), [workspace?.diagnostics]);
+
+  function selectHost(hostId: Id) {
+    const host = workspace?.hosts.find((item) => item.id === hostId);
+    if (!host || !workspace) return;
+    setSelection({ type: "host", id: hostId });
+    setExpanded((current) => {
+      const next = new Set(current);
+      for (const folderId of folderAncestorIds(workspace.folders, host.folderId)) {
+        next.add(folderId);
+      }
+      return next;
+    });
+    setStatus(`Selected: ${host.path}`);
+  }
 
   async function loadWorkspace() {
     try {
@@ -1178,9 +1218,7 @@ function App() {
           <SearchResults
             results={searchResults}
             selectedId={selection?.type === "host" ? selection.id : null}
-            onSelect={(id) => {
-              setSelection({ type: "host", id });
-            }}
+            onSelect={selectHost}
             onOpen={(hostId) => {
               const host = workspace.hosts.find((item) => item.id === hostId);
               if (host) openTerminal(host);
@@ -1336,6 +1374,7 @@ function App() {
           {!tabs.length && (
             <DetailsPane
               workspace={workspace}
+              onSelectHost={selectHost}
             />
           )}
           <TerminalStage
@@ -1415,13 +1454,14 @@ function App() {
             onCloseActions={closeActionsPane}
             onPreviewAction={previewAction}
             onRunAction={runAction}
+            onSelectHost={selectHost}
           />
         </aside>
       )}
 
       <footer className="statusbar">
         <span>{status}</span>
-        <span>{workspace.diagnostics.length} diagnostics</span>
+        <span>{diagnosticSummary}</span>
         <span>{workspace.vaultPath}</span>
       </footer>
     </div>
@@ -1612,6 +1652,7 @@ function SearchResults(props: {
 
 function DetailsPane(props: {
   workspace: WorkspaceSnapshot;
+  onSelectHost: (hostId: Id) => void;
 }) {
   return (
     <div className="details homeDetails">
@@ -1630,7 +1671,7 @@ function DetailsPane(props: {
       </div>
       <section>
         <h3>Diagnostics</h3>
-        <Diagnostics diagnostics={props.workspace.diagnostics} />
+        <Diagnostics diagnostics={props.workspace.diagnostics} onSelectHost={props.onSelectHost} />
       </section>
     </div>
   );
@@ -1686,6 +1727,7 @@ function Inspector(props: {
   onCloseActions: () => void;
   onPreviewAction: (action: ActionView) => void;
   onRunAction: (action: ActionView) => void;
+  onSelectHost: (hostId: Id) => void;
 }) {
   if (props.collapsed) {
     return (
@@ -1826,6 +1868,7 @@ function Inspector(props: {
         onJumps={props.onOpenJumps}
         onForwards={props.onOpenForwards}
         onActions={props.onOpenActions}
+        onSelectHost={props.onSelectHost}
       />
     );
   }
@@ -1838,6 +1881,7 @@ function Inspector(props: {
         onCollapse={props.onCollapse}
         onEdit={props.onEditFolder}
         onDelete={props.onDeleteFolder}
+        onSelectHost={props.onSelectHost}
       />
     );
   }
@@ -1887,6 +1931,7 @@ function HostInspectorDetails(props: {
   onJumps: (host: HostView) => void;
   onForwards: (host: HostView) => void;
   onActions: (host: HostView) => void;
+  onSelectHost: (hostId: Id) => void;
 }) {
   const { host, details, terminal, source } = props.target;
   const subtitle =
@@ -1954,7 +1999,7 @@ function HostInspectorDetails(props: {
       </section>
       <section>
         <h3>Diagnostics</h3>
-        <Diagnostics diagnostics={details?.diagnostics ?? []} />
+        <Diagnostics diagnostics={details?.diagnostics ?? []} onSelectHost={props.onSelectHost} />
       </section>
     </div>
   );
@@ -2387,6 +2432,7 @@ function FolderInspectorDetails(props: {
   onCollapse: () => void;
   onEdit: (folder: FolderView) => void;
   onDelete: (folder: FolderView) => void;
+  onSelectHost: (hostId: Id) => void;
 }) {
   return (
     <div className="inspectorDetails">
@@ -2405,7 +2451,7 @@ function FolderInspectorDetails(props: {
       </DetailList>
       <section>
         <h3>Diagnostics</h3>
-        <Diagnostics diagnostics={props.diagnostics} />
+        <Diagnostics diagnostics={props.diagnostics} onSelectHost={props.onSelectHost} />
       </section>
     </div>
   );
@@ -3136,14 +3182,31 @@ function ForwardPortField(props: { label: string; value: number; onChange: (valu
   );
 }
 
-function Diagnostics({ diagnostics }: { diagnostics: DiagnosticView[] }) {
+function Diagnostics({
+  diagnostics,
+  onSelectHost,
+}: {
+  diagnostics: DiagnosticView[];
+  onSelectHost?: (hostId: Id) => void;
+}) {
   if (!diagnostics.length) return <p>No diagnostics</p>;
   return (
     <div className="diagnostics">
       {diagnostics.map((diagnostic, index) => (
-        <p key={index} className={diagnostic.severity}>
-          {diagnostic.message}
-        </p>
+        <div key={`${diagnostic.kind}-${diagnostic.hostId ?? "global"}-${index}`} className={diagnostic.severity}>
+          <div className="diagnosticHeader">
+            <strong>{diagnostic.title || diagnostic.message}</strong>
+            <small>{diagnostic.severity}</small>
+          </div>
+          <p>{diagnostic.message}</p>
+          {diagnostic.path && <code>{diagnostic.path}</code>}
+          <small>{diagnostic.remediation}</small>
+          {diagnostic.hostId && onSelectHost && (
+            <button type="button" onClick={() => onSelectHost(diagnostic.hostId!)}>
+              Select host
+            </button>
+          )}
+        </div>
       ))}
     </div>
   );

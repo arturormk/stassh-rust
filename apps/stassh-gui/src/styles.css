@@ -544,17 +544,50 @@ code {
   color: #94a0ad;
 }
 
-.diagnostics p {
-  border-left: 3px solid #5f6d7d;
-  margin: 8px 0;
-  padding: 5px 0 5px 10px;
+.diagnostics {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.diagnostics p.error {
+.diagnostics > div {
+  border-left: 3px solid #5f6d7d;
+  margin: 8px 0;
+  padding: 7px 0 7px 10px;
+}
+
+.diagnostics p {
+  margin: 5px 0;
+}
+
+.diagnostics code {
+  display: block;
+  margin: 6px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diagnostics button {
+  margin-top: 8px;
+}
+
+.diagnosticHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.diagnosticHeader small {
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.diagnostics > div.error {
   border-color: #d46a5d;
 }
 
-.diagnostics p.warning {
+.diagnostics > div.warning {
   border-color: #f0b95a;
 }
 

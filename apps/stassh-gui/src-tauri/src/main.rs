@@ -162,8 +162,12 @@ struct IdentityView {
 #[serde(rename_all = "camelCase")]
 struct DiagnosticView {
     severity: &'static str,
+    kind: &'static str,
+    title: String,
     message: String,
+    remediation: String,
     host_id: Option<Uuid>,
+    path: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -416,46 +420,200 @@ fn diagnostics(
 ) -> Vec<DiagnosticView> {
     let mut diagnostics = Vec::new();
     for group in vault.duplicate_hosts() {
-        diagnostics.push(DiagnosticView {
-            severity: "warning",
-            message: format!("duplicate {:?}: {}", group.kind, group.key),
-            host_id: None,
-        });
+        let title = match group.kind {
+            stassh_core::DuplicateHostKind::Path => "Duplicate host path",
+            stassh_core::DuplicateHostKind::Connection => "Duplicate host connection",
+        };
+        diagnostics.push(diagnostic(
+            "warning",
+            "duplicateHost",
+            title,
+            format!("duplicate {:?}: {}", group.kind, group.key),
+            "Review the duplicated hosts and rename, move, or remove entries that should not be duplicated.",
+            None,
+            Some(group.key),
+        ));
     }
     for host in &vault.hosts {
         if let Some(fingerprint) = &host.identity_fingerprint {
             if local_config.identity_path(fingerprint).is_none() {
-                diagnostics.push(DiagnosticView {
-                    severity: "warning",
-                    message: format!("missing identity mapping for {}", vault.host_path(host)),
-                    host_id: Some(host.id),
-                });
+                diagnostics.push(diagnostic(
+                    "warning",
+                    "missingIdentityMapping",
+                    "Missing identity mapping",
+                    format!(
+                        "{} references {fingerprint}, but this machine has no local key path mapped for it.",
+                        vault.host_path(host)
+                    ),
+                    "Open the host identity editor and choose a local key for this fingerprint.",
+                    Some(host.id),
+                    Some(fingerprint.clone()),
+                ));
             }
         }
         for jump_id in &host.jump_chain {
             if vault.host(*jump_id).is_none() {
-                diagnostics.push(DiagnosticView {
-                    severity: "error",
-                    message: format!(
+                diagnostics.push(diagnostic(
+                    "error",
+                    "missingJumpTarget",
+                    "Missing jump target",
+                    format!(
                         "missing jump target {} on {}",
                         jump_id,
                         vault.host_path(host)
                     ),
-                    host_id: Some(host.id),
-                });
+                    "Edit the host jump chain and remove or replace the missing jump reference.",
+                    Some(host.id),
+                    Some(jump_id.to_string()),
+                ));
             }
+        }
+        for diagnostic_item in action_capability_diagnostics(
+            &host.actions,
+            local_config,
+            source,
+            Some(host.id),
+            &vault.host_path(host),
+            "host action",
+        ) {
+            diagnostics.push(diagnostic_item);
         }
     }
     for mapping in &local_config.identity_mappings {
         if source != WorkspaceSource::Simulation && !mapping.path.exists() {
-            diagnostics.push(DiagnosticView {
-                severity: "warning",
-                message: format!("identity file missing: {}", mapping.path.display()),
-                host_id: None,
-            });
+            diagnostics.push(diagnostic(
+                "warning",
+                "missingIdentityFile",
+                "Identity file not found",
+                format!("identity file missing: {}", mapping.path.display()),
+                "Restore the key file or update the local identity mapping.",
+                None,
+                Some(mapping.path.display().to_string()),
+            ));
+        }
+    }
+    diagnostics.extend(action_capability_diagnostics(
+        &vault.actions,
+        local_config,
+        source,
+        None,
+        "common actions",
+        "common action",
+    ));
+    for mapping in &local_config.capability_mappings {
+        if source != WorkspaceSource::Simulation && !mapping.path.exists() {
+            diagnostics.push(diagnostic(
+                "warning",
+                "missingCapabilityFile",
+                "Capability executable not found",
+                format!(
+                    "capability {} points to missing executable {}",
+                    mapping.name,
+                    mapping.path.display()
+                ),
+                "Restore the executable or update the local capability mapping.",
+                None,
+                Some(mapping.path.display().to_string()),
+            ));
         }
     }
     diagnostics
+}
+
+fn diagnostic(
+    severity: &'static str,
+    kind: &'static str,
+    title: impl Into<String>,
+    message: impl Into<String>,
+    remediation: impl Into<String>,
+    host_id: Option<Uuid>,
+    path: Option<String>,
+) -> DiagnosticView {
+    DiagnosticView {
+        severity,
+        kind,
+        title: title.into(),
+        message: message.into(),
+        remediation: remediation.into(),
+        host_id,
+        path,
+    }
+}
+
+fn action_capability_diagnostics(
+    actions: &[ActionDefinition],
+    local_config: &LocalConfig,
+    source: WorkspaceSource,
+    host_id: Option<Uuid>,
+    context: &str,
+    action_scope: &str,
+) -> Vec<DiagnosticView> {
+    let mut diagnostics = Vec::new();
+    for action in actions {
+        for (phase, command) in action_local_commands(action) {
+            match (&command.program, &command.capability) {
+                (None, Some(capability)) if local_config.capability_path(capability).is_none() => {
+                    diagnostics.push(diagnostic(
+                        "warning",
+                        "missingCapabilityMapping",
+                        "Missing capability mapping",
+                        format!(
+                            "{} {} '{}' uses capability {}, but this machine has no executable mapped for it.",
+                            context, action_scope, action.name, capability
+                        ),
+                        "Add a local capability mapping or edit the action to use an explicit program.",
+                        host_id,
+                        Some(capability.clone()),
+                    ));
+                }
+                (Some(_), Some(_)) => diagnostics.push(diagnostic(
+                    "error",
+                    "invalidActionCommand",
+                    "Invalid action command",
+                    format!(
+                        "{} {} '{}' has both program and capability set for {}.",
+                        context, action_scope, action.name, phase
+                    ),
+                    "Edit the action JSON so this local command uses either program or capability, not both.",
+                    host_id,
+                    Some(action.name.clone()),
+                )),
+                (None, None) => diagnostics.push(diagnostic(
+                    "error",
+                    "invalidActionCommand",
+                    "Invalid action command",
+                    format!(
+                        "{} {} '{}' has no program or capability set for {}.",
+                        context, action_scope, action.name, phase
+                    ),
+                    "Edit the action JSON so this local command sets a program or a mapped capability.",
+                    host_id,
+                    Some(action.name.clone()),
+                )),
+                _ => {}
+            }
+        }
+    }
+    if source == WorkspaceSource::Simulation {
+        diagnostics.retain(|diagnostic| diagnostic.kind != "missingCapabilityMapping");
+    }
+    diagnostics
+}
+
+fn action_local_commands(
+    action: &ActionDefinition,
+) -> Vec<(&'static str, &stassh_core::ActionLocalCommand)> {
+    let mut commands = Vec::new();
+    if let Some(command) = &action.local_prepare {
+        commands.push(("local prepare", command));
+    }
+    if let Some(command) = &action.local_launch {
+        commands.push(("local launch", command));
+    }
+    for command in &action.cleanup {
+        commands.push(("cleanup", command));
+    }
+    commands
 }
 
 fn host_secrets_view(workspace: &Workspace, host_id: Uuid) -> Result<HostSecretsView, String> {
@@ -1608,8 +1766,95 @@ mod tests {
             snapshot
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("missing identity mapping"))
+                .any(|diagnostic| diagnostic.kind == "missingIdentityMapping")
         );
+    }
+
+    #[test]
+    fn diagnostics_include_actionable_identity_mapping_fields() {
+        let mut vault = Vault::new();
+        let host = vault
+            .add_host(AddHost {
+                folder_id: None,
+                display_name: "web".to_string(),
+                hostname: "web.example".to_string(),
+                port: Some(22),
+                username: None,
+                identity_fingerprint: Some("SHA256:missing".to_string()),
+                secrets: None,
+                jump_chain: Vec::new(),
+                ssh_options: Vec::new(),
+                forwards: Vec::new(),
+                tags: Vec::new(),
+                notes: None,
+            })
+            .unwrap();
+
+        let diagnostics = diagnostics(&vault, &LocalConfig::new(), WorkspaceSource::Files);
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.kind == "missingIdentityMapping")
+            .unwrap();
+
+        assert_eq!(diagnostic.title, "Missing identity mapping");
+        assert_eq!(diagnostic.host_id, Some(host.id));
+        assert_eq!(diagnostic.path.as_deref(), Some("SHA256:missing"));
+        assert!(diagnostic.remediation.contains("identity editor"));
+    }
+
+    #[test]
+    fn diagnostics_report_missing_action_capability_mapping() {
+        let mut vault = Vault::new();
+        let host = vault
+            .add_host(AddHost {
+                folder_id: None,
+                display_name: "web".to_string(),
+                hostname: "web.example".to_string(),
+                port: Some(22),
+                username: None,
+                identity_fingerprint: None,
+                secrets: None,
+                jump_chain: Vec::new(),
+                ssh_options: Vec::new(),
+                forwards: Vec::new(),
+                tags: Vec::new(),
+                notes: None,
+            })
+            .unwrap();
+        vault
+            .update_host(
+                HostSelector::Id(host.id),
+                UpdateHost {
+                    actions: Some(vec![ActionDefinition {
+                        id: Uuid::new_v4(),
+                        name: "Open console".to_string(),
+                        local_prepare: None,
+                        forwards: Vec::new(),
+                        remote_command: None,
+                        local_launch: Some(stassh_core::ActionLocalCommand {
+                            capability: Some("browser".to_string()),
+                            program: None,
+                            args: Vec::new(),
+                            env: HashMap::new(),
+                        }),
+                        cleanup: Vec::new(),
+                    }]),
+                    ..UpdateHost::default()
+                },
+            )
+            .unwrap();
+
+        let diagnostics = diagnostics(&vault, &LocalConfig::new(), WorkspaceSource::Files);
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.kind == "missingCapabilityMapping")
+            .unwrap();
+
+        assert_eq!(diagnostic.title, "Missing capability mapping");
+        assert_eq!(diagnostic.host_id, Some(host.id));
+        assert_eq!(diagnostic.path.as_deref(), Some("browser"));
+        assert!(diagnostic.message.contains("Open console"));
+        assert!(diagnostic.remediation.contains("capability mapping"));
     }
 
     #[test]
