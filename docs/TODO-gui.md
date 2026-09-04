@@ -43,9 +43,10 @@ Secrets. Keep it in the repo while there are open GUI items.
   can be added later if it uses shared core behavior.
 
 - Reload and external-change workflow.
-  Explicit reload exists. Conservative file watching may be added later: detect
-  vault/local config changes, notify the user, and reload at a safe point
-  instead of silently overwriting external edits.
+  Explicit reload exists, and stale `vault.json` saves are rejected when the
+  file changed on disk after load/reload. Conservative file watching may be
+  added later to detect vault/local config changes before the user attempts to
+  save.
 
 - Desktop interaction polish.
   Add or improve command palette coverage, context menus, valid drag/drop for

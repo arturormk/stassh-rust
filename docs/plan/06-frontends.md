@@ -115,6 +115,10 @@ terminal component / layout view
 
 Terminal bytes are high-volume data and must not flow through heavyweight global frontend state. Host tree data and terminal I/O should have separate paths.
 
+Long-running TUI and GUI sessions remember the loaded `vault.json` file state.
+Before saving vault mutations, they reject the write if `vault.json` changed on
+disk and ask the user to reload, avoiding silent overwrites of external edits.
+
 Terminal tabs and layout tabs are GUI runtime state. Layouts are views over
 existing terminal sessions, not separate SSH sessions, and they should remain
 outside the portable vault unless a future cross-frontend persistence model is

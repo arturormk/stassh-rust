@@ -9,12 +9,13 @@ use std::thread;
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde::{Deserialize, Serialize};
 use stassh_core::{
-    ActionDefinition, AddFolder, AddHost, ForwardDefinition, HostSelector, LocalConfig,
+    ActionDefinition, AddFolder, AddHost, FileStamp, ForwardDefinition, HostSelector, LocalConfig,
     ResolvedActionPlan, ResolvedLocalCommand, SecretField, SecretsStore, SimulatedShell,
-    TempOpenSshConfig, UpdateHost, Vault, demo_workspace, ensure_home_stassh_permissions,
-    load_local_config, load_secrets, load_vault, local_config_path, parse_prepare_env,
-    prepare_openssh_command, resolve_action_local_prepare, resolve_action_plan, save_vault,
-    secrets_path, simulated_remote_command_output, standalone_openssh_command, vault_path,
+    TempOpenSshConfig, UpdateHost, Vault, demo_workspace, ensure_file_unchanged,
+    ensure_home_stassh_permissions, file_stamp, load_local_config, load_secrets, load_vault,
+    local_config_path, parse_prepare_env, prepare_openssh_command, resolve_action_local_prepare,
+    resolve_action_plan, save_vault, secrets_path, simulated_remote_command_output,
+    standalone_openssh_command, vault_path,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
@@ -82,6 +83,7 @@ enum WorkspaceSource {
 struct Workspace {
     source: WorkspaceSource,
     vault_path: PathBuf,
+    vault_stamp: Option<FileStamp>,
     local_config_path: PathBuf,
     secrets_path: PathBuf,
     vault: Vault,
@@ -315,6 +317,7 @@ fn load_workspace_from_paths(
         .map_err(error_message)?;
 
     let vault = load_vault(&vault_path).map_err(error_message)?;
+    let vault_stamp = file_stamp(&vault_path).map_err(error_message)?;
     let local_config = load_local_config(&local_config_path).map_err(error_message)?;
     let secrets_store = if secrets_path.exists() {
         Some(load_secrets(&secrets_path).map_err(error_message)?)
@@ -325,6 +328,7 @@ fn load_workspace_from_paths(
     Ok(Workspace {
         source: WorkspaceSource::Files,
         vault_path,
+        vault_stamp,
         local_config_path,
         secrets_path,
         vault,
@@ -338,6 +342,7 @@ fn load_simulation_workspace() -> Result<Workspace, String> {
     Ok(Workspace {
         source: WorkspaceSource::Simulation,
         vault_path: PathBuf::from("simulation://vault.json"),
+        vault_stamp: None,
         local_config_path: PathBuf::from("simulation://local.json"),
         secrets_path: PathBuf::from("simulation://secrets.json"),
         vault: workspace.vault,
@@ -863,15 +868,24 @@ fn mutate_vault(
     let workspace = guard
         .as_mut()
         .ok_or_else(|| "workspace is not loaded".to_string())?;
+    mutate_workspace_vault(workspace, f)
+}
+
+fn mutate_workspace_vault(
+    workspace: &mut Workspace,
+    f: impl FnOnce(&mut Vault) -> Result<(), String>,
+) -> Result<WorkspaceSnapshot, String> {
     if workspace.source == WorkspaceSource::Simulation {
         f(&mut workspace.vault)?;
         workspace.vault.validate().map_err(error_message)?;
         return Ok(snapshot(workspace));
     }
-    let mut vault = load_vault(&workspace.vault_path).map_err(error_message)?;
+    ensure_file_unchanged(&workspace.vault_path, &workspace.vault_stamp).map_err(error_message)?;
+    let mut vault = workspace.vault.clone();
     f(&mut vault)?;
     save_vault(&workspace.vault_path, &vault).map_err(error_message)?;
     workspace.vault = load_vault(&workspace.vault_path).map_err(error_message)?;
+    workspace.vault_stamp = file_stamp(&workspace.vault_path).map_err(error_message)?;
     workspace.local_config =
         load_local_config(&workspace.local_config_path).map_err(error_message)?;
     workspace.secrets_store = if workspace.secrets_path.exists() {
@@ -1642,6 +1656,7 @@ mod tests {
             Workspace {
                 source: WorkspaceSource::Files,
                 vault_path: "vault.json".into(),
+                vault_stamp: None,
                 local_config_path: "local.json".into(),
                 secrets_path: "secrets.json".into(),
                 vault,
@@ -1703,6 +1718,7 @@ mod tests {
             Workspace {
                 source: WorkspaceSource::Files,
                 vault_path: "vault.json".into(),
+                vault_stamp: None,
                 local_config_path: "local.json".into(),
                 secrets_path: "secrets.json".into(),
                 vault,
@@ -1855,6 +1871,75 @@ mod tests {
         assert_eq!(diagnostic.path.as_deref(), Some("browser"));
         assert!(diagnostic.message.contains("Open console"));
         assert!(diagnostic.remediation.contains("capability mapping"));
+    }
+
+    #[test]
+    fn mutate_vault_rejects_external_file_change() {
+        let dir = std::env::temp_dir().join(format!("stassh-gui-stale-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let vault_path = dir.join("vault.json");
+        let local_config_path = dir.join("local.json");
+        let secrets_path = dir.join("secrets.json");
+        let mut vault = Vault::new();
+        let host = vault
+            .add_host(AddHost {
+                folder_id: None,
+                display_name: "web".to_string(),
+                hostname: "web.example".to_string(),
+                port: Some(22),
+                username: None,
+                identity_fingerprint: None,
+                secrets: None,
+                jump_chain: Vec::new(),
+                ssh_options: Vec::new(),
+                forwards: Vec::new(),
+                tags: Vec::new(),
+                notes: None,
+            })
+            .unwrap();
+        save_vault(&vault_path, &vault).unwrap();
+        stassh_core::save_local_config(&local_config_path, &LocalConfig::new()).unwrap();
+        let mut workspace = load_workspace_from_paths(
+            Some(vault_path.clone()),
+            Some(local_config_path.clone()),
+            Some(secrets_path),
+        )
+        .unwrap();
+
+        vault
+            .add_host(AddHost {
+                folder_id: None,
+                display_name: "db".to_string(),
+                hostname: "db.example".to_string(),
+                port: Some(22),
+                username: None,
+                identity_fingerprint: None,
+                secrets: None,
+                jump_chain: Vec::new(),
+                ssh_options: Vec::new(),
+                forwards: Vec::new(),
+                tags: Vec::new(),
+                notes: None,
+            })
+            .unwrap();
+        save_vault(&vault_path, &vault).unwrap();
+
+        let error = mutate_workspace_vault(&mut workspace, |vault| {
+            vault
+                .update_host(
+                    HostSelector::Id(host.id),
+                    UpdateHost {
+                        display_name: Some("web-renamed".to_string()),
+                        ..UpdateHost::default()
+                    },
+                )
+                .map_err(error_message)?;
+            Ok(())
+        })
+        .unwrap_err();
+
+        assert!(error.contains("changed on disk"));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

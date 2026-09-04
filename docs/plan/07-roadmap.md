@@ -50,7 +50,8 @@
 - Treat `vault.json`, `local.json`, and `secrets.json` as user-owned files that
   can be copied, backed up, or synced by external tools.
 - Avoid app-defined synchronization protocols, merge journals, and hosted sync.
-- Validate files on load and report external-edit conflicts clearly.
+- Validate files on load and reject stale saves from long-running frontends when
+  `vault.json` changed on disk.
 - Preserve backups around risky migrations or writes.
 
 ## Milestone 6.5: Shared Simulation

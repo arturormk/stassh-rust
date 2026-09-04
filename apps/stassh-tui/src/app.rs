@@ -9,9 +9,9 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use stassh_core::{
-    ActionDefinition, AddHost, Folder, Host, HostSelector, LocalConfig, SecretField,
-    SecretPlaintext, SecretsStore, UpdateHost, Vault, demo_workspace, load_local_config,
-    load_secrets, load_vault, save_vault,
+    ActionDefinition, AddHost, FileStamp, Folder, Host, HostSelector, LocalConfig, SecretField,
+    SecretPlaintext, SecretsStore, UpdateHost, Vault, demo_workspace, ensure_file_unchanged,
+    file_stamp, load_local_config, load_secrets, load_vault, save_vault,
 };
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
@@ -71,6 +71,7 @@ enum MouseTarget {
 #[derive(Debug)]
 pub(crate) struct App {
     pub(crate) vault_path: PathBuf,
+    vault_stamp: Option<FileStamp>,
     pub(crate) local_config_path: PathBuf,
     pub(crate) secrets_path: PathBuf,
     pub(crate) vault: Vault,
@@ -118,8 +119,14 @@ impl App {
     ) -> Self {
         let collapsed_folders = default_collapsed_folders(&vault);
         let tree = build_tree(&vault, &collapsed_folders);
+        let vault_stamp = if simulation {
+            None
+        } else {
+            file_stamp(&vault_path).ok().flatten()
+        };
         Self {
             vault_path,
+            vault_stamp,
             local_config_path,
             secrets_path,
             vault,
@@ -569,6 +576,7 @@ impl App {
             self.secrets_store = Some(workspace.secrets_store);
         } else {
             self.vault = load_vault(&self.vault_path)?;
+            self.vault_stamp = file_stamp(&self.vault_path)?;
             self.local_config = load_local_config(&self.local_config_path)?;
             self.secrets_store = if self.secrets_path.exists() {
                 Some(load_secrets(&self.secrets_path)?)
@@ -605,7 +613,8 @@ impl App {
         if self.simulation {
             Ok(self.vault.clone())
         } else {
-            Ok(load_vault(&self.vault_path)?)
+            ensure_file_unchanged(&self.vault_path, &self.vault_stamp)?;
+            Ok(self.vault.clone())
         }
     }
 
@@ -613,7 +622,9 @@ impl App {
         if self.simulation {
             self.vault = vault;
         } else {
+            ensure_file_unchanged(&self.vault_path, &self.vault_stamp)?;
             save_vault(&self.vault_path, &vault)?;
+            self.vault_stamp = file_stamp(&self.vault_path)?;
             self.vault = vault;
             self.local_config = load_local_config(&self.local_config_path)?;
         }
@@ -2021,8 +2032,14 @@ mod tests {
         let mut app = sample_app();
         save_vault(&vault_path, &app.vault).unwrap();
         app.vault_path = vault_path;
+        app.vault_stamp = file_stamp(&app.vault_path).unwrap();
         app.local_config_path = local_config_path;
         (app, dir)
+    }
+
+    fn persist_app_vault(app: &mut App) {
+        save_vault(&app.vault_path, &app.vault).unwrap();
+        app.vault_stamp = file_stamp(&app.vault_path).unwrap();
     }
 
     #[test]
@@ -2752,6 +2769,51 @@ mod tests {
     }
 
     #[test]
+    fn save_rejects_external_vault_change() {
+        let (mut app, dir) = app_with_persisted_vault("stale-save");
+        let vault_path = app.vault_path.clone();
+        select_label(&mut app, "web");
+
+        let mut external = load_vault(&vault_path).unwrap();
+        external
+            .add_host(AddHost {
+                folder_id: None,
+                display_name: "external".to_string(),
+                hostname: "external.example".to_string(),
+                port: Some(22),
+                username: None,
+                identity_fingerprint: None,
+                secrets: None,
+                jump_chain: Vec::new(),
+                ssh_options: Vec::new(),
+                forwards: Vec::new(),
+                tags: Vec::new(),
+                notes: None,
+            })
+            .unwrap();
+        save_vault(&vault_path, &external).unwrap();
+
+        let error = app.handle_key(key(KeyCode::Char('C'))).unwrap_err();
+
+        assert!(error.to_string().contains("changed on disk"));
+        let persisted = load_vault(&vault_path).unwrap();
+        assert!(
+            persisted
+                .hosts
+                .iter()
+                .any(|host| host.display_name == "external")
+        );
+        assert!(
+            !persisted
+                .hosts
+                .iter()
+                .any(|host| host.display_name == "web copy")
+        );
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn copies_selected_search_result_with_uppercase_c() {
         let (mut app, dir) = app_with_persisted_vault("copy-search-host");
         let vault_path = app.vault_path.clone();
@@ -2813,9 +2875,9 @@ mod tests {
         let vault_path = dir.join("vault.json");
         let local_config_path = dir.join("local.json");
         let mut app = sample_app();
-        save_vault(&vault_path, &app.vault).unwrap();
         app.vault_path = vault_path.clone();
         app.local_config_path = local_config_path;
+        persist_app_vault(&mut app);
         select_label(&mut app, "web");
         let host_id = app.selected_host().unwrap().id;
 
@@ -2866,9 +2928,9 @@ mod tests {
         let vault_path = dir.join("vault.json");
         let local_config_path = dir.join("local.json");
         let mut app = sample_app();
-        save_vault(&vault_path, &app.vault).unwrap();
         app.vault_path = vault_path.clone();
         app.local_config_path = local_config_path;
+        persist_app_vault(&mut app);
         select_label(&mut app, "Customers");
 
         app.handle_key(key(KeyCode::Char('f'))).unwrap();
@@ -2901,9 +2963,9 @@ mod tests {
         let local_config_path = dir.join("local.json");
         let mut app = sample_app();
         let root_id = app.vault.root_folder_id();
-        save_vault(&vault_path, &app.vault).unwrap();
         app.vault_path = vault_path.clone();
         app.local_config_path = local_config_path;
+        persist_app_vault(&mut app);
         select_label(&mut app, "Customers");
         let folder_id = app.selected_folder_id().unwrap();
 
@@ -2932,6 +2994,8 @@ mod tests {
         let vault_path = dir.join("vault.json");
         let local_config_path = dir.join("local.json");
         let mut app = sample_app();
+        app.vault_path = vault_path.clone();
+        app.local_config_path = local_config_path;
         let folder = app
             .vault
             .add_folder(AddFolder {
@@ -2940,9 +3004,7 @@ mod tests {
             })
             .unwrap();
         app.rebuild_tree();
-        save_vault(&vault_path, &app.vault).unwrap();
-        app.vault_path = vault_path.clone();
-        app.local_config_path = local_config_path;
+        persist_app_vault(&mut app);
         select_label(&mut app, "Empty");
 
         app.handle_key(key(KeyCode::Char('x'))).unwrap();
@@ -3329,7 +3391,7 @@ mod tests {
             .find(|host| host.id == host_id)
             .unwrap()
             .identity_fingerprint = Some("SHA256:abc".to_string());
-        save_vault(&vault_path, &app.vault).unwrap();
+        persist_app_vault(&mut app);
         app.local_config
             .map_identity(
                 "SHA256:abc".to_string(),
@@ -3387,7 +3449,7 @@ mod tests {
             .find(|host| host.id == host_id)
             .unwrap()
             .identity_fingerprint = Some("SHA256:abc".to_string());
-        save_vault(&vault_path, &app.vault).unwrap();
+        persist_app_vault(&mut app);
         select_label(&mut app, "web");
 
         app.handle_key(key(KeyCode::Char('i'))).unwrap();

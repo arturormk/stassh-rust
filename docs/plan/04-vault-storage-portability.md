@@ -71,7 +71,8 @@ when loading and fail clearly rather than silently discard data.
 Because the application stores ordinary files, conflict recovery should stay
 simple and inspectable: preserve backups around risky writes, report validation
 errors clearly, and avoid overwriting external edits without an explicit reload
-or save flow.
+or save flow. Long-running frontends remember the loaded `vault.json` file state
+and reject saves if it changed on disk; users must reload before saving again.
 
 ## Filesystem Constraints
 

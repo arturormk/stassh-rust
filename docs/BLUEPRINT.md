@@ -1352,6 +1352,8 @@ Stassh should not try to be a general merge engine for that situation.
 
 Instead, it should make local file handling boring and inspectable:
 
+* remember the loaded file state in long-running frontends and reject stale saves,
+* ask the user to reload before saving when an external edit is detected,
 * reload files before writes when practical,
 * write atomically where the platform supports it,
 * preserve backups around migrations or risky writes,
@@ -2465,7 +2467,7 @@ For:
 * vault serialization,
 * crypto wrappers,
 * operation merging,
-* conflict handling,
+* stale-file conflict handling,
 * OpenSSH config generation,
 * forward generation,
 * identity fingerprint parsing.

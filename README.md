@@ -204,6 +204,9 @@ By default, new setups use:
 This makes carrying or syncing a personal SSH workspace between machines as
 simple as copying `~/.ssh/stassh/` with whatever file-copy, backup, or sync
 tool the user already trusts. Existing project-local vaults remain supported.
+Long-running frontends record the loaded `vault.json` file state and reject
+saves if the file changed on disk. Press `r` in `stassh-tui` or Reload in
+`stassh-gui` before saving again so external edits are not silently overwritten.
 
 On Unix-like systems, `stassh` and `stassh-tui` require safe permissions for the
 default home configuration directory:
@@ -361,9 +364,11 @@ In move-folder picker mode:
 - `Esc`: cancel without writing
 
 The move picker shows all folders expanded, regardless of the current collapsed
-state in the browse tree. Moving hosts reloads the vault from disk, applies all
-host folder changes, saves once, and refreshes the tree/details view. Moving a
-host to its current folder is allowed and treated as a no-op for that host.
+state in the browse tree. Moving hosts saves once against the loaded vault state
+and refreshes the tree/details view. If `vault.json` changed on disk since the
+TUI loaded or reloaded it, the save is rejected and the status line asks you to
+reload before trying again. Moving a host to its current folder is allowed and
+treated as a no-op for that host.
 
 In host create/edit mode:
 
@@ -377,8 +382,10 @@ The first editor supports host name, hostname, port, username, tags, and notes.
 New hosts are created in the selected folder, or in the selected host's folder.
 An empty username clears the host-specific username, an empty notes field clears
 notes, and tags are entered as comma-separated values. Empty port means `22`.
-When saving, the TUI reloads the vault from disk, applies the change by stable host
-ID for edits, saves, and refreshes the tree/details view.
+When saving, the TUI applies edits by stable host ID against the loaded vault
+state, saves, and refreshes the tree/details view. If `vault.json` changed on
+disk since the TUI loaded or reloaded it, the save is rejected and the status
+line asks you to reload before trying again.
 
 In identity selection mode:
 
@@ -460,9 +467,9 @@ In delete confirmation mode:
 - `n` / `Esc`: cancel without writing
 
 Deleting a host removes it from the vault and also removes it from other hosts'
-jump chains. Deleting a folder requires the folder to be empty. The TUI reloads
-the vault from disk before applying the deletion, saves the updated vault, and
-refreshes the tree/details view.
+jump chains. Deleting a folder requires the folder to be empty. The TUI saves
+the deletion only if the loaded vault state still matches `vault.json` on disk,
+then refreshes the tree/details view.
 
 `Enter` preserves the simple OpenSSH-first behavior: the TUI leaves the alternate
 screen, runs the system `ssh` attached directly to the current terminal, then

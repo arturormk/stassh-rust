@@ -127,7 +127,14 @@ fn run_loop<B: Backend + io::Write>(terminal: &mut Terminal<B>, app: &mut App) -
 
         if event::poll(Duration::from_millis(250))? {
             let action = match event::read()? {
-                Event::Key(key) => app.handle_key(key)?,
+                Event::Key(key) => match app.handle_key(key) {
+                    Ok(action) => action,
+                    Err(error) if error.to_string().contains("changed on disk") => {
+                        app.status = format!("{error}. Press r to reload.");
+                        KeyAction::None
+                    }
+                    Err(error) => return Err(error),
+                },
                 Event::Mouse(mouse) => {
                     let size = terminal.size()?;
                     let tree_area = ui::ui_areas(Rect::new(0, 0, size.width, size.height)).tree;

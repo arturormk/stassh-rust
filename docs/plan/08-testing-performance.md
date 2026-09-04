@@ -16,6 +16,7 @@ Cover:
 - encryption wrapper behavior
 - `secrets.json` encryption/decryption behavior
 - backup and validation behavior around file writes
+- file-stamp stale-save detection for long-running frontends
 
 ## Integration Tests
 
@@ -32,7 +33,7 @@ Cover:
 - portable vault open/lock flows
 - interrupted writes
 - concurrent vault access
-- externally modified file handling
+- externally modified file handling and reload-before-save behavior
 - removable-storage disappearance where it can be simulated
 
 ## End-To-End Tests

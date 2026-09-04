@@ -207,9 +207,10 @@ The GUI should avoid requiring users to paste UUIDs for ordinary operations.
 Folder moves should use a folder picker or drag/drop. UUIDs may still be visible
 in advanced details for debugging and compatibility with CLI workflows.
 
-All vault writes should follow the TUI's cautious pattern: reload from disk,
-apply the intended stable-ID mutation, save once, reload or refresh UI state,
-and surface any conflict or validation error clearly.
+All vault writes should follow the frontends' cautious pattern: remember the
+loaded `vault.json` file state, reject saves if that file changed on disk, apply
+the intended stable-ID mutation only to the loaded state, save once, refresh UI
+state, and surface any conflict or validation error clearly.
 
 ## 3.5 Multi-Select And Moves
 
@@ -359,9 +360,11 @@ simple, safe reveal of linked host secrets is the first priority.
 
 The TUI can reload vault, local config, and secrets from disk.
 
-The GUI should support explicit reload and may later add file watching. Any file
-watching should be conservative: detect changes, notify the user, and reload at a
-safe point rather than overwriting external edits silently.
+The GUI supports explicit reload and rejects saves when `vault.json` has changed
+on disk since the workspace was loaded or reloaded. It may later add file
+watching, but any watching should stay conservative: detect changes, notify the
+user, and reload at a safe point rather than overwriting external edits
+silently.
 
 ---
 

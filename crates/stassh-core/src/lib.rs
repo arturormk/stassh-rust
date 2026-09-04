@@ -47,4 +47,4 @@ pub use simulation::{
     SIMULATION_MASTER_PASSWORD, SimulatedOutput, SimulatedShell, SimulationWorkspace,
     demo_workspace, simulated_remote_command_output,
 };
-pub use storage::{load_vault, save_vault};
+pub use storage::{FileStamp, ensure_file_unchanged, file_stamp, load_vault, save_vault};
