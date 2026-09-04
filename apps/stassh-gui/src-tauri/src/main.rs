@@ -14,7 +14,7 @@ use stassh_core::{
     TempOpenSshConfig, UpdateHost, Vault, demo_workspace, ensure_home_stassh_permissions,
     load_local_config, load_secrets, load_vault, local_config_path, parse_prepare_env,
     prepare_openssh_command, resolve_action_local_prepare, resolve_action_plan, save_vault,
-    secrets_path, simulated_remote_command_output, vault_path,
+    secrets_path, simulated_remote_command_output, standalone_openssh_command, vault_path,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
@@ -786,8 +786,7 @@ fn host_details(host_id: Uuid, state: State<'_, AppState>) -> Result<HostDetails
             .vault
             .host(host_id)
             .ok_or_else(|| format!("host not found: {host_id}"))?;
-        let (ssh, _temp_config) =
-            prepare_openssh_command(&resolved, &workspace.local_config).map_err(error_message)?;
+        let ssh = standalone_openssh_command(&resolved, &workspace.local_config);
         Ok(HostDetailsView {
             host: HostView {
                 id: host.id,
@@ -1100,11 +1099,10 @@ fn preview_ssh_command(host_id: Uuid, state: State<'_, AppState>) -> Result<SshP
             .vault
             .resolve_host(HostSelector::Id(host_id))
             .map_err(error_message)?;
-        let (command, temp_config) =
-            prepare_openssh_command(&resolved, &workspace.local_config).map_err(error_message)?;
+        let command = standalone_openssh_command(&resolved, &workspace.local_config);
         Ok(SshPreview {
             command: command.render_for_display(),
-            uses_temp_config: temp_config.is_some(),
+            uses_temp_config: false,
         })
     })
 }

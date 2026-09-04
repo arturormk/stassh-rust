@@ -6,6 +6,7 @@ declare global {
     __STASSH_TEST_API__?: {
       invoke: typeof tauriInvoke;
       listen: typeof tauriListen;
+      emit?: (eventName: string, payload: unknown) => void;
     };
   }
 }

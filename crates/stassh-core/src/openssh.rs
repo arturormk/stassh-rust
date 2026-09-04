@@ -76,6 +76,13 @@ impl Drop for TempOpenSshConfig {
 }
 
 pub fn command_for_host(host: &ResolvedHost) -> OpenSshCommand {
+    command_for_host_with_identity_path(host, None)
+}
+
+pub fn command_for_host_with_identity_path(
+    host: &ResolvedHost,
+    identity_path: Option<&Path>,
+) -> OpenSshCommand {
     let mut args = Vec::new();
     args.push("-p".into());
     args.push(host.port.to_string().into());
@@ -83,6 +90,13 @@ pub fn command_for_host(host: &ResolvedHost) -> OpenSshCommand {
     if let Some(username) = &host.username {
         args.push("-l".into());
         args.push(username.into());
+    }
+
+    if let Some(identity_path) = identity_path {
+        args.push("-i".into());
+        args.push(identity_path.into());
+        args.push("-o".into());
+        args.push("IdentitiesOnly=yes".into());
     }
 
     if !host.jump_chain.is_empty() {
@@ -379,6 +393,35 @@ mod tests {
 
         assert!(config.contains("    IdentityFile /home/alice/.ssh/acme\n"));
         assert!(config.contains("    IdentitiesOnly yes\n"));
+    }
+
+    #[test]
+    fn standalone_command_includes_mapped_identity_file() {
+        let host = ResolvedHost {
+            id: Uuid::new_v4(),
+            path: "web".to_string(),
+            display_name: "web".to_string(),
+            hostname: "web.example".to_string(),
+            port: 22,
+            username: Some("deploy".to_string()),
+            identity_fingerprint: Some("SHA256:deploy".to_string()),
+            secrets: None,
+            jump_chain: Vec::new(),
+            ssh_options: Vec::new(),
+            forwards: Vec::new(),
+            actions: Vec::new(),
+            tags: Vec::new(),
+            notes: None,
+        };
+
+        let command =
+            command_for_host_with_identity_path(&host, Some(Path::new("/home/alice/.ssh/acme")))
+                .render_for_display();
+
+        assert_eq!(
+            command,
+            "ssh -p 22 -l deploy -i /home/alice/.ssh/acme -o IdentitiesOnly=yes web.example"
+        );
     }
 
     #[test]

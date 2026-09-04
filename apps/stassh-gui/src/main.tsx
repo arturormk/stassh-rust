@@ -585,7 +585,8 @@ function App() {
                     : item.activeSessionId,
               }
             : item,
-        );
+        )
+        .filter((item) => item.type !== "layout" || item.sessionIds.length > 0);
       const nextActiveTabId =
         activeTabId === tab.id || !nextTabs.some((item) => item.id === activeTabId)
           ? nextTabs[0]?.id ?? null
@@ -1349,6 +1350,7 @@ function App() {
             onRemoveFromLayout={removeSessionFromLayout}
             onEnterFullscreen={setFullscreenSessionId}
             onExitFullscreen={() => setFullscreenSessionId(null)}
+            onCloseTerminal={(tab) => closeTab(tab)}
           />
         </div>
       </section>
@@ -2495,6 +2497,7 @@ function TerminalStage(props: {
   onRemoveFromLayout: (layoutId: Id, sessionId: Id) => void;
   onEnterFullscreen: (sessionId: Id) => void;
   onExitFullscreen: () => void;
+  onCloseTerminal: (tab: Extract<Tab, { type: "terminal" }>) => void;
 }) {
   const terminalById = new Map(
     props.tabs
@@ -2626,6 +2629,7 @@ function TerminalStage(props: {
               onRemove={() => layout && props.onRemoveFromLayout(layout.id, tab.sessionId)}
               onEnterFullscreen={() => props.onEnterFullscreen(tab.sessionId)}
               onExitFullscreen={props.onExitFullscreen}
+              onClose={() => props.onCloseTerminal(tab)}
             />
           );
         })}
@@ -2661,6 +2665,7 @@ function TerminalPane({
   onRemove,
   onEnterFullscreen,
   onExitFullscreen,
+  onClose,
 }: {
   tab: Extract<Tab, { type: "terminal" }>;
   notes: string | null;
@@ -2675,18 +2680,21 @@ function TerminalPane({
   onRemove: () => void;
   onEnterFullscreen: () => void;
   onExitFullscreen: () => void;
+  onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const searchRef = useRef<SearchAddon | null>(null);
-  const activeRef = useRef(visible);
-  const focusedRef = useRef(focused);
-  const inputRef = useRef(onInput);
-  const initialOutputWrittenRef = useRef(false);
   const displayNotes = notes?.trim() || null;
   const exited = isTerminalExited(tab);
+  const activeRef = useRef(visible);
+  const focusedRef = useRef(focused);
+  const exitedRef = useRef(exited);
+  const inputRef = useRef(onInput);
+  const closeRef = useRef(onClose);
+  const initialOutputWrittenRef = useRef(false);
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");
   const [findCaseSensitive, setFindCaseSensitive] = useState(false);
@@ -2702,12 +2710,20 @@ function TerminalPane({
   }, [focused]);
 
   useEffect(() => {
+    exitedRef.current = exited;
+  }, [exited]);
+
+  useEffect(() => {
     findOpenRef.current = findOpen;
   }, [findOpen]);
 
   useEffect(() => {
     inputRef.current = onInput;
   }, [onInput]);
+
+  useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!findOpen || !focused) return;
@@ -2807,6 +2823,16 @@ function TerminalPane({
           searchInputRef.current?.focus();
           searchInputRef.current?.select();
         });
+        return false;
+      }
+      if (
+        event.type === "keydown" &&
+        activeRef.current &&
+        focusedRef.current &&
+        exitedRef.current &&
+        event.key === "Enter"
+      ) {
+        closeRef.current();
         return false;
       }
       if (

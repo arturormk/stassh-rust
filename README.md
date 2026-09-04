@@ -507,8 +507,8 @@ Current GUI capabilities:
 
 - browse the host/folder tree and search hosts
 - inspect selected hosts, folders, active terminal sessions, and layout state in
-  a contextual right-side Inspector, including generated OpenSSH command preview
-  and diagnostics
+  a contextual right-side Inspector, including a standalone copy/paste OpenSSH
+  command preview and diagnostics
 - create, edit, copy, delete, and move hosts
 - create, rename, move, and delete folders where allowed
 - assign or clear a host identity from local mappings
@@ -535,6 +535,8 @@ Current GUI capabilities:
   case-sensitive matching
 - show host notes in terminal headers when notes are available
 - confirm before closing a still-running terminal session
+- close an exited focused terminal by pressing `Enter`; layout tabs are removed
+  automatically when their last terminal closes
 - see host-tree indicators for how many SSH sessions are open for each host
 - launch `--simulation` to use in-memory corporate-style demo data, scripted
   terminal sessions, and fake encrypted secrets for screenshot-safe demos
@@ -740,6 +742,11 @@ ssh -F <temporary-config> <generated-alias>
 ```
 
 The temporary config is removed after the `ssh` process exits.
+
+In the desktop GUI, the host details panel's OpenSSH Preview is rendered as a
+standalone command intended for copy/paste into a normal terminal. It uses direct
+OpenSSH arguments such as `-p`, `-l`, `-i`, `-J`, forwarding flags, and `-o`
+options instead of referencing the GUI's temporary config file.
 
 ## Actions
 

@@ -18,7 +18,8 @@
 ## Milestone 2: OpenSSH Orchestration And CLI
 
 - Locate or configure the OpenSSH binary.
-- Generate inspectable OpenSSH commands and temporary config files.
+- Generate inspectable standalone OpenSSH command previews and temporary config
+  files for execution paths that need them.
 - Implement `stassh list`, `search`, `show`, `connect`, and `diagnose`.
 - Support jump hosts and basic forwarding generation.
 - Clean up session-local temporary files.

@@ -183,6 +183,41 @@ test("preserves terminal scrollback across layout tab changes", async ({ page })
   await expect(page.getByTestId("terminal-pane-web-prod-01").locator(".terminalFindCount")).toHaveText("Match");
 });
 
+test("closes a selected exited terminal when Enter is pressed", async ({ page }) => {
+  await openSimulationTerminals(page, ["web-prod-01", "db-prod-01"]);
+  await page.getByTestId("tab-web-prod-01").click();
+  await page.getByTestId("terminal-pane-web-prod-01").click();
+  const sessionId = await terminalSessionId(page, "web-prod-01");
+
+  await page.evaluate((sessionId) => {
+    window.__STASSH_TEST_API__?.emit("session-exit", { sessionId, message: "EXITED" });
+  }, sessionId);
+
+  await expect(page.getByTestId("tab-web-prod-01")).toHaveClass(/terminalExited/);
+  await page.keyboard.press("Enter");
+
+  await expect(page.getByTestId("tab-web-prod-01")).toHaveCount(0);
+  await expect(tabTitles(page)).resolves.toEqual(["db-prod-01"]);
+});
+
+test("removes a layout tab after its last terminal is closed", async ({ page }) => {
+  await openSimulationTerminals(page, ["web-prod-01"]);
+  await page.getByTestId("create-layout-tab").click();
+  await expect(page.getByTestId("tab-Layout 1")).toBeVisible();
+  await page.getByTestId("terminal-pane-web-prod-01").click();
+  const sessionId = await terminalSessionId(page, "web-prod-01");
+
+  await page.evaluate((sessionId) => {
+    window.__STASSH_TEST_API__?.emit("session-exit", { sessionId, message: "EXITED" });
+  }, sessionId);
+
+  await page.keyboard.press("Enter");
+
+  await expect(page.getByTestId("tab-web-prod-01")).toHaveCount(0);
+  await expect(page.getByTestId("tab-Layout 1")).toHaveCount(0);
+  await expect(tabTitles(page)).resolves.toEqual([]);
+});
+
 async function installTauriMock(page: Page) {
   await page.addInitScript(({ snapshot }) => {
     const listeners = new Map<string, Set<Listener>>();
@@ -202,6 +237,7 @@ async function installTauriMock(page: Page) {
     }
 
     window.__STASSH_TEST_API__ = {
+      emit,
       invoke: async (command: string, args?: Record<string, unknown>) => {
         if (command === "load_workspace" || command === "reload_workspace") return snapshot;
         if (command === "host_details") {

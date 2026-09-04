@@ -63,7 +63,7 @@ Current features:
 - folder editor
 - contextual inspector for selected hosts, selected folders, active terminals,
   and layouts
-- diagnostics and generated OpenSSH preview
+- diagnostics and standalone copy/paste OpenSSH preview
 - linked secrets inspection with explicit reveal
 - action list, dry-run preview, and action terminal-session running
 - ordered jump-chain editing through a dedicated inspector pane
@@ -76,6 +76,8 @@ Current features:
 - layout-local broadcast input
 - internal full-screen terminal panes
 - running-session close confirmation
+- Enter-to-close behavior for focused exited terminal panes
+- automatic removal of layout tabs after their last terminal closes
 - open-session indicators in the host tree
 - exited-session indicators in terminal tabs and terminal headers
 - GUI simulation mode with deterministic demo data and scripted SSH sessions
@@ -116,7 +118,8 @@ Terminal bytes are high-volume data and must not flow through heavyweight global
 Terminal tabs and layout tabs are GUI runtime state. Layouts are views over
 existing terminal sessions, not separate SSH sessions, and they should remain
 outside the portable vault unless a future cross-frontend persistence model is
-designed.
+designed. Empty layout tabs should be removed automatically when all of their
+terminal sessions have been closed.
 
 Simulation mode is a frontend development and documentation aid. It loads
 deterministic in-memory demo data from core, exposes virtual `simulation://`

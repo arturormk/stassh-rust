@@ -167,7 +167,7 @@ The GUI should make host details richer and easier to scan:
 * common and host-specific actions,
 * tags,
 * notes,
-* generated OpenSSH command preview,
+* standalone copy/paste OpenSSH command preview,
 * and diagnostics/warnings.
 
 Diagnostics should be visible as a dedicated tab, inspector section, or command
@@ -264,7 +264,7 @@ should evolve toward a more visual and precise workflow:
 * remove/reorder controls,
 * prevention of self-jumps,
 * clear display of each jump host's username, hostname, and port,
-* and generated `ProxyJump`/temporary config preview when useful.
+* and generated `ProxyJump`/standalone command preview when useful.
 
 The stored value remains the ordered list of jump host UUIDs.
 
@@ -447,6 +447,8 @@ Current session affordances:
 * open screenshot-safe simulated sessions with deterministic startup output,
 * remove a session from a layout without closing the SSH session,
 * confirm before closing a still-running terminal session,
+* close an exited focused terminal by pressing Enter,
+* remove layout tabs automatically when their last terminal closes,
 * close a terminal session,
 * and preserve the host browser while sessions are active.
 

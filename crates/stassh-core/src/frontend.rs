@@ -11,8 +11,8 @@ use uuid::Uuid;
 use crate::local::LocalConfig;
 use crate::model::{HostSelector, ResolvedHost};
 use crate::openssh::{
-    OpenSshCommand, TempOpenSshConfig, command_for_host, config_execution_required,
-    config_for_host_with_identity_path,
+    OpenSshCommand, TempOpenSshConfig, command_for_host, command_for_host_with_identity_path,
+    config_execution_required, config_for_host_with_identity_path,
 };
 
 pub fn vault_path(path: Option<PathBuf>) -> io::Result<PathBuf> {
@@ -191,5 +191,63 @@ pub fn prepare_openssh_command(
         Ok((command, Some(temp_config)))
     } else {
         Ok((command_for_host(host), None))
+    }
+}
+
+pub fn standalone_openssh_command(
+    host: &ResolvedHost,
+    local_config: &LocalConfig,
+) -> OpenSshCommand {
+    let identity_path = host
+        .identity_fingerprint
+        .as_deref()
+        .and_then(|fingerprint| local_config.identity_path(fingerprint));
+    command_for_host_with_identity_path(host, identity_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use uuid::Uuid;
+
+    use crate::local::LocalConfig;
+    use crate::model::ResolvedHost;
+
+    use super::*;
+
+    #[test]
+    fn standalone_command_uses_local_identity_mapping() {
+        let host = ResolvedHost {
+            id: Uuid::new_v4(),
+            path: "web".to_string(),
+            display_name: "web".to_string(),
+            hostname: "web.example".to_string(),
+            port: 2222,
+            username: Some("deploy".to_string()),
+            identity_fingerprint: Some("SHA256:deploy".to_string()),
+            secrets: None,
+            jump_chain: Vec::new(),
+            ssh_options: Vec::new(),
+            forwards: Vec::new(),
+            actions: Vec::new(),
+            tags: Vec::new(),
+            notes: None,
+        };
+        let mut local_config = LocalConfig::new();
+        local_config
+            .map_identity(
+                "SHA256:deploy".to_string(),
+                PathBuf::from("/home/alice/.ssh/deploy key"),
+                None,
+            )
+            .unwrap();
+
+        let command = standalone_openssh_command(&host, &local_config).render_for_display();
+
+        assert_eq!(
+            command,
+            "ssh -p 2222 -l deploy -i '/home/alice/.ssh/deploy key' -o IdentitiesOnly=yes web.example"
+        );
     }
 }

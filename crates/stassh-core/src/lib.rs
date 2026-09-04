@@ -17,7 +17,7 @@ pub use action::{
 pub use export::export_openssh_config;
 pub use frontend::{
     ensure_home_stassh_permissions, local_config_path, prepare_openssh_command, secrets_path,
-    selector, vault_path,
+    selector, standalone_openssh_command, vault_path,
 };
 pub use identity::{
     DerivedIdentity, IdentityDeriveError, IdentityFileResolver, OpenSshIdentityResolver,
