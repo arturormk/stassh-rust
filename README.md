@@ -1,4 +1,6 @@
 ![Made with Codex](https://img.shields.io/badge/made%20with-Codex-111111)
+[![Package Linux](https://github.com/arturormk/stassh-rust/actions/workflows/package-linux.yml/badge.svg)](https://github.com/arturormk/stassh-rust/actions/workflows/package-linux.yml)
+[![Latest release](https://img.shields.io/github/v/release/arturormk/stassh-rust?display_name=tag)](https://github.com/arturormk/stassh-rust/releases)
 
 # stassh-rust
 
