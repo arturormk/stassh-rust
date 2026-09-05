@@ -1,14 +1,31 @@
 use std::env;
+use std::path::Path;
 use std::process::Command;
 
-fn main() {
+pub fn configure_stassh_version() {
     println!("cargo:rerun-if-env-changed=STASSH_VERSION");
-    println!("cargo:rerun-if-changed=../../.git/HEAD");
-    println!("cargo:rerun-if-changed=../../.git/refs/heads");
-    println!("cargo:rerun-if-changed=../../.git/packed-refs");
+    if let Some(git_dir) = workspace_git_dir() {
+        println!("cargo:rerun-if-changed={}", git_dir.join("HEAD").display());
+        println!(
+            "cargo:rerun-if-changed={}",
+            git_dir.join("refs/heads").display()
+        );
+        println!(
+            "cargo:rerun-if-changed={}",
+            git_dir.join("packed-refs").display()
+        );
+    }
 
     let version = env::var("STASSH_VERSION").unwrap_or_else(|_| computed_version());
     println!("cargo:rustc-env=STASSH_VERSION={version}");
+}
+
+fn workspace_git_dir() -> Option<std::path::PathBuf> {
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").ok()?;
+    Path::new(&manifest_dir)
+        .ancestors()
+        .map(|path| path.join(".git"))
+        .find(|path| path.exists())
 }
 
 fn computed_version() -> String {

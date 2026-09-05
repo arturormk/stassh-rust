@@ -130,6 +130,46 @@ npm install
 npm run tauri dev
 ```
 
+## Linux Packages And Releases
+
+The GitHub Actions packaging workflow builds amd64 Linux `.deb` and `.rpm`
+packages. Each package installs all three executables:
+
+```text
+/usr/bin/stassh
+/usr/bin/stassh-tui
+/usr/bin/stassh-gui
+```
+
+Release versions use a two-track scheme. Even minor versions are manually
+released and display as `major.minor`, such as `1.0`. Odd minor versions are
+development versions and append the Git commit count at build time, such as
+`1.1.42`.
+
+Stored Cargo, npm, and Tauri metadata use full semver, so the first public
+release is stored as `1.0.0` while the CLI/TUI version output displays `1.0`.
+
+To build the Linux packages locally:
+
+```bash
+cd apps/stassh-gui
+npm install
+npm run tauri -- build --ci --bundles deb,rpm
+```
+
+The package workflow runs only when a tag is pushed. It accepts tags such as
+`v1.0` or `v1.0.0` when the minor version is even, verifies the tag matches the
+stored package version, builds both package formats, and creates a draft GitHub
+Release with the package files attached. Publish the draft release manually
+after downloading and testing the generated packages.
+
+For the v1.0 release:
+
+```bash
+git tag -a v1.0 -m "stassh v1.0"
+git push origin v1.0
+```
+
 Launch the GUI with deterministic demo data and simulated SSH sessions for
 screenshots or visual checks:
 
@@ -1038,7 +1078,7 @@ The exported file is meant to be reviewable OpenSSH configuration. It is not a b
 
 ## Development Notes
 
-The current storage format is an unreleased development format:
+The current storage format is:
 
 ```json
 {
@@ -1048,7 +1088,8 @@ The current storage format is an unreleased development format:
 }
 ```
 
-It is intentionally plain JSON for early development. Do not store sensitive production inventory in it yet.
+It is intentionally plain JSON. Store private key material outside the vault and
+use `secrets.json` for fields that need encryption.
 
 Before committing changes, run:
 

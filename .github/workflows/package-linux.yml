@@ -1,0 +1,116 @@
+name: Package Linux
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  package-linux-amd64:
+    name: Build amd64 deb and rpm
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Validate release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^v([0-9]+)\.([0-9]+)(\.0)?$ ]]; then
+            echo "Expected an even-minor release tag such as v1.0 or v1.0.0; got $tag" >&2
+            exit 1
+          fi
+
+          major="${BASH_REMATCH[1]}"
+          minor="${BASH_REMATCH[2]}"
+          if (( minor % 2 != 0 )); then
+            echo "Odd minor versions are development versions and are not packaged: $tag" >&2
+            exit 1
+          fi
+
+          normalized="$major.$minor.0"
+          manifest_version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "stassh") | .version')"
+          if [[ "$manifest_version" != "$normalized" ]]; then
+            echo "Tag $tag normalizes to $normalized, but Cargo metadata is $manifest_version" >&2
+            exit 1
+          fi
+
+          echo "STASSH_RELEASE_VERSION=$normalized" >> "$GITHUB_ENV"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: apps/stassh-gui/package-lock.json
+
+      - name: Install Linux package dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            rpm
+
+      - name: Install frontend dependencies
+        run: npm --prefix apps/stassh-gui ci
+
+      - name: Test Rust workspace
+        run: cargo test --workspace
+
+      - name: Build frontend
+        run: npm --prefix apps/stassh-gui run build
+
+      - name: Build Linux packages
+        run: npm --prefix apps/stassh-gui run tauri -- build --ci --bundles deb,rpm
+
+      - name: Collect and verify packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/packages
+
+          find target apps/stassh-gui/src-tauri/target \
+            -path '*/bundle/deb/*.deb' \
+            -exec cp {} dist/packages/ \; 2>/dev/null || true
+          find target apps/stassh-gui/src-tauri/target \
+            -path '*/bundle/rpm/*.rpm' \
+            -exec cp {} dist/packages/ \; 2>/dev/null || true
+
+          deb="$(find dist/packages -name '*.deb' -print -quit)"
+          rpm_package="$(find dist/packages -name '*.rpm' -print -quit)"
+          test -n "$deb"
+          test -n "$rpm_package"
+
+          dpkg-deb -c "$deb" | grep -E '(^| )\./usr/bin/stassh$'
+          dpkg-deb -c "$deb" | grep -E '(^| )\./usr/bin/stassh-tui$'
+          dpkg-deb -c "$deb" | grep -E '(^| )\./usr/bin/stassh-gui$'
+
+          rpm -qpl "$rpm_package" | grep -E '/usr/bin/stassh$'
+          rpm -qpl "$rpm_package" | grep -E '/usr/bin/stassh-tui$'
+          rpm -qpl "$rpm_package" | grep -E '/usr/bin/stassh-gui$'
+
+      - name: Publish GitHub Release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: stassh ${{ env.STASSH_RELEASE_VERSION }}
+          draft: true
+          files: |
+            dist/packages/*.deb
+            dist/packages/*.rpm
