@@ -1,0 +1,31 @@
+#!/bin/sh
+set -eu
+
+target="${1:-}"
+if [ -z "$target" ]; then
+  echo "usage: stassh-vnc-viewer-delay <vnc-target>" >&2
+  exit 2
+fi
+
+case "$target" in
+127.0.0.1::*)
+  port="${target##*::}"
+  if ! command -v nc >/dev/null 2>&1; then
+    sleep 3
+    exec xtightvncviewer "$target"
+  fi
+  i=0
+  while [ "$i" -lt 60 ]; do
+    if nc -z 127.0.0.1 "$port" >/dev/null 2>&1; then
+      exec xtightvncviewer "$target"
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+  echo "VNC port did not open: $target" >&2
+  exit 1
+  ;;
+esac
+
+sleep 3
+exec xtightvncviewer "$target"

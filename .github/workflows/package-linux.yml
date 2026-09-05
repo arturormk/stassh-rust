@@ -97,9 +97,14 @@ jobs:
           test -n "$deb"
           test -n "$rpm_package"
 
-          dpkg-deb -c "$deb" | grep -E '(^| )\./usr/bin/stassh$'
-          dpkg-deb -c "$deb" | grep -E '(^| )\./usr/bin/stassh-tui$'
-          dpkg-deb -c "$deb" | grep -E '(^| )\./usr/bin/stassh-gui$'
+          echo "deb package contents:"
+          dpkg-deb -c "$deb"
+          echo "rpm package contents:"
+          rpm -qpl "$rpm_package"
+
+          dpkg-deb -c "$deb" | grep -E '(^| )(\./)?usr/bin/stassh$'
+          dpkg-deb -c "$deb" | grep -E '(^| )(\./)?usr/bin/stassh-tui$'
+          dpkg-deb -c "$deb" | grep -E '(^| )(\./)?usr/bin/stassh-gui$'
 
           rpm -qpl "$rpm_package" | grep -E '/usr/bin/stassh$'
           rpm -qpl "$rpm_package" | grep -E '/usr/bin/stassh-tui$'

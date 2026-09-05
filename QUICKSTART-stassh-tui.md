@@ -238,6 +238,10 @@ A simplified `local.json` looks like:
     {
       "name": "vnc-viewer-delay",
       "path": "/home/alice/bin/stassh-vnc-viewer-delay"
+    },
+    {
+      "name": "send-file-scp",
+      "path": "/home/alice/bin/stassh-send-file-scp"
     }
   ]
 }
@@ -247,6 +251,14 @@ To add a local key mapping:
 
 ```bash
 stassh identity add ~/.ssh/customer-key --name customer-key
+```
+
+To add local tool mappings used by actions:
+
+```bash
+stassh capability map vnc-viewer-delay "$HOME/bin/stassh-vnc-viewer-delay"
+stassh capability map send-file-scp "$HOME/bin/stassh-send-file-scp"
+stassh capability list
 ```
 
 ## 5. Use the TUI
@@ -346,10 +358,20 @@ stassh action web "VNC direct" --dry-run
 stassh action web "VNC direct"
 ```
 
+The send-file example opens a lightweight local file picker, starting from the
+user's home directory by default, and copies the selected file to the remote
+host's home directory with `scp`:
+
+```bash
+stassh action web "Send file to home" --dry-run
+stassh action web "Send file to home"
+```
+
 In `stassh-tui`, highlight a host, press `a`, choose the action, and press
 `Enter`. The TUI leaves the alternate screen while the action runs and restores
 itself when SSH exits. If a local viewer or wrapper script exits early, the CLI
-prints that status, which is useful when diagnosing forwarded VNC setup.
+prints that status, which is useful when diagnosing forwarded VNC or send-file
+setup.
 
 For screenshot-safe demos or practicing workflows without real SSH hosts, launch
 the TUI simulation environment:

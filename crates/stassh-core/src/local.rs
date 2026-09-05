@@ -165,6 +165,20 @@ impl LocalConfig {
             .find(|mapping| mapping.name == name)
             .map(|mapping| mapping.path.as_path())
     }
+
+    pub fn capability_mapping(&self, name: &str) -> Option<&CapabilityMapping> {
+        self.capability_mappings
+            .iter()
+            .find(|mapping| mapping.name == name)
+    }
+
+    pub fn unmap_capability(&mut self, name: &str) -> Option<CapabilityMapping> {
+        let index = self
+            .capability_mappings
+            .iter()
+            .position(|mapping| mapping.name == name)?;
+        Some(self.capability_mappings.remove(index))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

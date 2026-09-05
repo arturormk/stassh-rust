@@ -300,6 +300,165 @@ fn action_dry_run_reports_forwarded_vnc_plan() {
 }
 
 #[test]
+fn capability_mapping_supports_action_local_launch() {
+    let dir = temp_dir("capability-action");
+    init_vault(&dir);
+    let local_config = local_config_path(&dir);
+    let viewer = dir.join("stassh-vnc-viewer-delay");
+    fs::write(&viewer, "#!/bin/sh\nexec echo \"$1\"\n").unwrap();
+
+    let mapped = run_json(&[
+        "--vault",
+        &vault_path(&dir),
+        "--local-config",
+        &local_config,
+        "--output",
+        "json",
+        "capability",
+        "map",
+        "vnc-viewer-delay",
+        &viewer.display().to_string(),
+    ]);
+    assert_eq!(mapped["status"], "mapped");
+    assert_eq!(mapped["capability"]["name"], "vnc-viewer-delay");
+    assert_eq!(mapped["capability"]["exists"], true);
+
+    run(&[
+        "--vault",
+        &vault_path(&dir),
+        "host",
+        "add",
+        "pi",
+        "pi.local",
+    ]);
+    let vault_file = dir.join("vault.json");
+    let mut vault: Value = serde_json::from_slice(&fs::read(&vault_file).unwrap()).unwrap();
+    vault["actions"] = serde_json::json!([
+        {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "name": "VNC direct",
+            "remote_command": "DISPLAY=:0 x11vnc -scale 1/2",
+            "local_launch": {
+                "capability": "vnc-viewer-delay",
+                "args": ["{HOST}::5900"]
+            }
+        }
+    ]);
+    fs::write(&vault_file, serde_json::to_vec_pretty(&vault).unwrap()).unwrap();
+
+    let dry_run = run_json(&[
+        "--vault",
+        &vault_path(&dir),
+        "--local-config",
+        &local_config,
+        "--output",
+        "json",
+        "action",
+        "pi",
+        "VNC direct",
+        "--dry-run",
+    ]);
+    assert_eq!(
+        dry_run["plan"]["local_launch"]["program"],
+        viewer.display().to_string()
+    );
+    assert_eq!(dry_run["plan"]["local_launch"]["args"][0], "pi.local::5900");
+
+    let listed = run_json(&[
+        "--vault",
+        &vault_path(&dir),
+        "--local-config",
+        &local_config,
+        "--output",
+        "json",
+        "capability",
+        "list",
+    ]);
+    assert_eq!(listed["capability_mappings"][0]["name"], "vnc-viewer-delay");
+
+    let diagnosed = run_json(&[
+        "--vault",
+        &vault_path(&dir),
+        "--local-config",
+        &local_config,
+        "--output",
+        "json",
+        "capability",
+        "diagnose",
+        "vnc-viewer-delay",
+    ]);
+    assert_eq!(diagnosed["capability_mapping"]["exists"], true);
+}
+
+#[test]
+fn action_dry_run_renders_host_port_for_send_file_prepare() {
+    let dir = temp_dir("send-file-action");
+    init_vault(&dir);
+    let local_config = local_config_path(&dir);
+    let helper = dir.join("stassh-send-file-scp");
+    fs::write(&helper, "#!/bin/sh\nexit 0\n").unwrap();
+
+    run(&[
+        "--vault",
+        &vault_path(&dir),
+        "--local-config",
+        &local_config,
+        "capability",
+        "map",
+        "send-file-scp",
+        &helper.display().to_string(),
+    ]);
+    run(&[
+        "--vault",
+        &vault_path(&dir),
+        "host",
+        "add",
+        "pi",
+        "pi.local",
+        "--user",
+        "alice",
+        "--port",
+        "2222",
+    ]);
+    let vault_file = dir.join("vault.json");
+    let mut vault: Value = serde_json::from_slice(&fs::read(&vault_file).unwrap()).unwrap();
+    vault["actions"] = serde_json::json!([
+        {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "name": "Send file to home",
+            "local_prepare": {
+                "capability": "send-file-scp",
+                "args": ["{HOST}", "{PORT}", "{USER}", "~"]
+            },
+            "remote_command": "true"
+        }
+    ]);
+    fs::write(&vault_file, serde_json::to_vec_pretty(&vault).unwrap()).unwrap();
+
+    let dry_run = run_json(&[
+        "--vault",
+        &vault_path(&dir),
+        "--local-config",
+        &local_config,
+        "--output",
+        "json",
+        "action",
+        "pi",
+        "Send file to home",
+        "--dry-run",
+    ]);
+
+    assert_eq!(
+        dry_run["plan"]["local_prepare"]["program"],
+        helper.display().to_string()
+    );
+    assert_eq!(dry_run["plan"]["local_prepare"]["args"][0], "pi.local");
+    assert_eq!(dry_run["plan"]["local_prepare"]["args"][1], "2222");
+    assert_eq!(dry_run["plan"]["local_prepare"]["args"][2], "alice");
+    assert_eq!(dry_run["plan"]["local_prepare"]["args"][3], "~");
+}
+
+#[test]
 fn vault_duplicates_reports_path_and_connection_groups() {
     let dir = temp_dir("duplicates");
     init_vault(&dir);

@@ -91,6 +91,15 @@ This keeps portable workflow definitions out of machine-specific paths:
 }
 ```
 
+You can manage these mappings without editing `local.json` by hand:
+
+```bash
+stassh capability map vnc-viewer-delay /home/alice/bin/stassh-vnc-viewer-delay
+stassh capability list
+stassh capability diagnose vnc-viewer-delay
+stassh capability unmap vnc-viewer-delay
+```
+
 ## Action Schema
 
 An action object supports these fields:
@@ -202,6 +211,7 @@ Actions can use these template variables:
 
 - `{HOST}`: resolved target hostname.
 - `{USER}`: resolved username, or an empty string when no username is set.
+- `{PORT}`: resolved SSH port.
 - `{LOCAL_PORT:name}`: local port allocated or resolved for the named action
   forward.
 - `{ENV:NAME}`: value emitted by `local_prepare` as a `NAME=value` line.
@@ -433,6 +443,41 @@ An action can consume those values:
 
 This is useful when a local helper needs to reserve or choose values before the
 SSH command and local launch command are rendered.
+
+## Example: Send A Local File With scp
+
+This action runs a local helper before the SSH command. The helper asks the user
+to choose a file, copies it to the remote host's home directory with `scp`, and
+exits non-zero if the transfer fails.
+
+```json
+{
+  "id": "99999999-aaaa-bbbb-cccc-dddddddddddd",
+  "name": "Send file to home",
+  "local_prepare": {
+    "capability": "send-file-scp",
+    "args": ["{HOST}", "{PORT}", "{USER}", "~"]
+  },
+  "remote_command": "true"
+}
+```
+
+Map the local helper on each machine:
+
+```bash
+stassh capability map send-file-scp /home/alice/bin/stassh-send-file-scp
+```
+
+The example helper in `examples/actions/stassh-send-file-scp` uses `fzf` when
+available, starts from the user's home directory by default, hides dotfiles by
+default, and falls back to simpler terminal pickers. The action demonstrates
+that `local_prepare` can be used for interactive local setup, not only for
+emitting environment variables.
+
+This simple helper uses direct `scp` with `{HOST}`, `{PORT}`, and `{USER}`. It
+does not automatically apply stassh jump-chain or identity mappings to `scp`.
+For hosts that require those, adapt the helper script or use an OpenSSH config
+entry that `scp` can already resolve.
 
 ## Cleanup
 

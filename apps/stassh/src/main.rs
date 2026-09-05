@@ -139,6 +139,14 @@ fn identity_mapping_json(mapping: &stassh_core::IdentityMapping) -> Value {
     })
 }
 
+fn capability_mapping_json(mapping: &stassh_core::CapabilityMapping) -> Value {
+    json!({
+        "name": mapping.name,
+        "path": mapping.path,
+        "exists": mapping.path.exists(),
+    })
+}
+
 fn identity_mapping_diagnosis_json(
     fingerprint: &str,
     local_config: &stassh_core::LocalConfig,
@@ -191,6 +199,17 @@ fn print_duplicate_host_groups(groups: &[stassh_core::DuplicateHostGroup]) {
                 host.port
             );
         }
+    }
+}
+
+fn capability_mapping_diagnosis_json(name: &str, local_config: &stassh_core::LocalConfig) -> Value {
+    match local_config.capability_mapping(name) {
+        Some(mapping) => capability_mapping_json(mapping),
+        None => json!({
+            "name": name,
+            "path": null,
+            "exists": false,
+        }),
     }
 }
 
@@ -658,6 +677,8 @@ enum Commands {
     #[command(subcommand)]
     Identity(IdentityCommands),
     #[command(subcommand)]
+    Capability(CapabilityCommands),
+    #[command(subcommand)]
     Import(ImportCommands),
     #[command(subcommand)]
     Export(ExportCommands),
@@ -702,6 +723,18 @@ enum IdentityCommands {
     Rename(RenameIdentityArgs),
     Unmap(UnmapIdentityArgs),
     Diagnose(DiagnoseIdentityArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum CapabilityCommands {
+    /// List local capability mappings.
+    List,
+    /// Map a capability name to a local executable path.
+    Map(MapCapabilityArgs),
+    /// Remove a local capability mapping.
+    Unmap(UnmapCapabilityArgs),
+    /// Show one local capability mapping and whether its executable exists.
+    Diagnose(DiagnoseCapabilityArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -775,6 +808,26 @@ struct UnmapIdentityArgs {
 #[derive(Debug, Args)]
 struct DiagnoseIdentityArgs {
     fingerprint: String,
+}
+
+#[derive(Debug, Args)]
+struct MapCapabilityArgs {
+    /// Capability name used by action local commands.
+    name: String,
+    /// Local executable path for this machine.
+    path: PathBuf,
+}
+
+#[derive(Debug, Args)]
+struct UnmapCapabilityArgs {
+    /// Capability name to remove from local config.
+    name: String,
+}
+
+#[derive(Debug, Args)]
+struct DiagnoseCapabilityArgs {
+    /// Capability name to inspect.
+    name: String,
 }
 
 #[derive(Debug, Args)]
@@ -1622,6 +1675,106 @@ fn main() -> Result<()> {
             } else {
                 println!("local config: {}", local_path.display());
                 print_identity_mapping(&args.fingerprint, &local_config);
+            }
+        }
+        Commands::Capability(CapabilityCommands::List) => {
+            let local_path = local_config_path.clone();
+            let local_config = load_local_config(&local_path)?;
+            if output.is_json() {
+                let mappings = local_config
+                    .capability_mappings
+                    .iter()
+                    .map(capability_mapping_json)
+                    .collect::<Vec<_>>();
+                print_json(json!({
+                    "local_config_path": local_path,
+                    "capability_mappings": mappings,
+                }))?;
+            } else {
+                println!("local config: {}", local_path.display());
+                for mapping in local_config.capability_mappings {
+                    println!(
+                        "{}\t{}\t{}",
+                        mapping.name,
+                        mapping.path.display(),
+                        if mapping.path.exists() {
+                            "exists"
+                        } else {
+                            "missing"
+                        }
+                    );
+                }
+            }
+        }
+        Commands::Capability(CapabilityCommands::Map(args)) => {
+            let local_path = local_config_path.clone();
+            let mut local_config = load_local_config(&local_path)?;
+            local_config.map_capability(args.name.clone(), args.path.clone())?;
+            save_local_config(&local_path, &local_config)?;
+            if output.is_json() {
+                print_json(json!({
+                    "status": "mapped",
+                    "capability": {
+                        "name": args.name,
+                        "path": args.path,
+                        "exists": args.path.exists(),
+                    },
+                }))?;
+            } else {
+                println!(
+                    "mapped capability: {} -> {}",
+                    args.name,
+                    args.path.display()
+                );
+            }
+        }
+        Commands::Capability(CapabilityCommands::Unmap(args)) => {
+            let local_path = local_config_path.clone();
+            let mut local_config = load_local_config(&local_path)?;
+            match local_config.unmap_capability(&args.name) {
+                Some(mapping) => {
+                    save_local_config(&local_path, &local_config)?;
+                    if output.is_json() {
+                        print_json(json!({
+                            "status": "unmapped",
+                            "capability": capability_mapping_json(&mapping),
+                        }))?;
+                    } else {
+                        println!(
+                            "unmapped capability: {} -> {}",
+                            mapping.name,
+                            mapping.path.display()
+                        );
+                    }
+                }
+                None => bail!("capability is not mapped: {}", args.name),
+            }
+        }
+        Commands::Capability(CapabilityCommands::Diagnose(args)) => {
+            let local_path = local_config_path.clone();
+            let local_config = load_local_config(&local_path)?;
+            if output.is_json() {
+                print_json(json!({
+                    "local_config_path": local_path,
+                    "capability_mapping": capability_mapping_diagnosis_json(&args.name, &local_config),
+                }))?;
+            } else {
+                println!("local config: {}", local_path.display());
+                match local_config.capability_mapping(&args.name) {
+                    Some(mapping) => {
+                        println!(
+                            "{}\t{}\t{}",
+                            mapping.name,
+                            mapping.path.display(),
+                            if mapping.path.exists() {
+                                "exists"
+                            } else {
+                                "missing"
+                            }
+                        );
+                    }
+                    None => println!("{} unmapped", args.name),
+                }
             }
         }
         Commands::Import(ImportCommands::Openssh(args)) => {

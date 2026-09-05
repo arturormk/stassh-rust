@@ -1,0 +1,86 @@
+#!/bin/sh
+set -eu
+
+host="${1:-}"
+port="${2:-22}"
+user="${3:-}"
+remote_dir="${4:-~}"
+
+if [ -z "$host" ]; then
+  echo "usage: stassh-send-file-scp <host> <port> [user] [remote-dir]" >&2
+  exit 2
+fi
+
+if [ -n "$user" ]; then
+  destination="$user@$host:$remote_dir/"
+else
+  destination="$host:$remote_dir/"
+fi
+
+select_with_fzf() {
+  find_files | fzf --prompt='Send file> '
+}
+
+select_with_dialog() {
+  start="${STASSH_SEND_FILE_START:-$HOME/}"
+  dialog --stdout --title "Send file" --fselect "$start" 0 0
+}
+
+find_files() {
+  root="${STASSH_SEND_FILE_START:-$HOME}"
+  if [ "${STASSH_SEND_FILE_HIDDEN:-0}" = 1 ]; then
+    find "$root" -type f 2>/dev/null
+  else
+    find "$root" \( -path '*/.*' -prune \) -o -type f -print 2>/dev/null
+  fi
+}
+
+select_with_menu() {
+  tmp="${TMPDIR:-/tmp}/stassh-send-file-scp.$$"
+  find_files > "$tmp"
+  if [ ! -s "$tmp" ]; then
+    rm -f "$tmp"
+    return 1
+  fi
+
+  awk '{ printf "%4d  %s\n", NR, $0 }' "$tmp" > /dev/tty
+  printf 'Send file number: ' > /dev/tty
+  read -r number < /dev/tty
+  selected="$(awk -v n="$number" 'NR == n { print; found = 1 } END { exit found ? 0 : 1 }' "$tmp")"
+  rm -f "$tmp"
+  printf '%s\n' "$selected"
+}
+
+case "${STASSH_SEND_FILE_PICKER:-auto}" in
+auto)
+  if command -v fzf >/dev/null 2>&1; then
+    file="$(select_with_fzf)"
+  elif command -v dialog >/dev/null 2>&1 && [ -t 2 ]; then
+    file="$(select_with_dialog)"
+  else
+    file="$(select_with_menu)"
+  fi
+  ;;
+fzf)
+  file="$(select_with_fzf)"
+  ;;
+dialog)
+  file="$(select_with_dialog)"
+  ;;
+menu)
+  file="$(select_with_menu)"
+  ;;
+*)
+  echo "unsupported STASSH_SEND_FILE_PICKER: $STASSH_SEND_FILE_PICKER" >&2
+  echo "expected one of: auto, fzf, dialog, menu" >&2
+  exit 2
+  ;;
+esac
+
+if [ -z "$file" ]; then
+  echo "no file selected" >&2
+  exit 1
+fi
+
+scp -P "$port" -- "$file" "$destination" >&2
+printf 'LOCAL_FILE=%s\n' "$file"

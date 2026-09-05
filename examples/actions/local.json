@@ -1,0 +1,14 @@
+{
+  "format_version": 0,
+  "identity_mappings": [],
+  "capability_mappings": [
+    {
+      "name": "vnc-viewer-delay",
+      "path": "/home/alice/bin/stassh-vnc-viewer-delay"
+    },
+    {
+      "name": "send-file-scp",
+      "path": "/home/alice/bin/stassh-send-file-scp"
+    }
+  ]
+}

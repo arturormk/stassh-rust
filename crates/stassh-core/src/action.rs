@@ -337,6 +337,9 @@ fn template_value(
     if variable == "USER" {
         return Ok(host.username.clone().unwrap_or_default());
     }
+    if variable == "PORT" {
+        return Ok(host.port.to_string());
+    }
     if let Some(name) = variable.strip_prefix("LOCAL_PORT:") {
         return allocated_ports
             .get(name)
@@ -365,7 +368,7 @@ mod tests {
             display_name: "pi".to_string(),
             hostname: "pi.local".to_string(),
             port: 22,
-            username: Some("arturo".to_string()),
+            username: Some("alice".to_string()),
             identity_fingerprint: None,
             secrets: None,
             jump_chain: Vec::new(),
@@ -485,5 +488,26 @@ mod tests {
         assert_eq!(parsed.get("PORT").map(String::as_str), Some("5900"));
         assert_eq!(parsed.get("DISPLAY").map(String::as_str), Some(":0"));
         assert!(!parsed.contains_key("BAD-NAME"));
+    }
+
+    #[test]
+    fn renders_host_port_for_local_commands() {
+        let command = ActionLocalCommand {
+            capability: None,
+            program: Some("/bin/echo".to_string()),
+            args: vec!["{USER}@{HOST}:{PORT}".to_string()],
+            env: HashMap::new(),
+        };
+
+        let resolved = resolve_local_command(
+            &command,
+            &host(),
+            &LocalConfig::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        )
+        .unwrap();
+
+        assert_eq!(resolved.args, vec!["alice@pi.local:22"]);
     }
 }

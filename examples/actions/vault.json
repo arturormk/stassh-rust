@@ -1,0 +1,63 @@
+{
+  "format_version": 0,
+  "actions": [
+    {
+      "id": "c6ad645a-a0b1-11f1-9246-abdd0c80754f",
+      "name": "VNC forwarded",
+      "forwards": [
+        {
+          "type": "local",
+          "name": "vnc",
+          "bind_address": "127.0.0.1",
+          "local_port": "auto",
+          "destination_host": "127.0.0.1",
+          "destination_port": 5900
+        }
+      ],
+      "remote_command": "DISPLAY=:0 x11vnc -scale 1/2",
+      "local_launch": {
+        "capability": "vnc-viewer-delay",
+        "args": [
+          "127.0.0.1::{LOCAL_PORT:vnc}"
+        ],
+        "env": {}
+      },
+      "cleanup": []
+    },
+    {
+      "id": "cc4ed948-a0b1-11f1-975a-57b3356e18a8",
+      "name": "VNC direct",
+      "forwards": [],
+      "remote_command": "DISPLAY=:0 x11vnc -scale 1/2",
+      "local_launch": {
+        "capability": "vnc-viewer-delay",
+        "args": [
+          "{HOST}::5900"
+        ],
+        "env": {}
+      },
+      "cleanup": []
+    },
+    {
+      "id": "d30220ae-a0b1-11f1-83ef-c328c4332536",
+      "name": "Send file to home",
+      "local_prepare": {
+        "capability": "send-file-scp",
+        "args": [
+          "{HOST}",
+          "{PORT}",
+          "{USER}",
+          "~"
+        ],
+        "env": {}
+      },
+      "forwards": [],
+      "remote_command": "true",
+      "cleanup": []
+    }
+  ],
+  "folders": [
+  ],
+  "hosts": [
+  ]
+}

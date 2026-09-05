@@ -51,6 +51,7 @@ Implemented now:
 - import of a useful subset of existing OpenSSH config files, including nested `Include` files
 - export to OpenSSH config format
 - machine-local identity fingerprint to key-path mappings
+- machine-local capability name to executable path mappings for reusable actions
 - fingerprint derivation from provided private key paths with `ssh-keygen -lf`
 - basic diagnostics
 - optional structured JSON output for CLI commands
@@ -185,6 +186,10 @@ instead of real OpenSSH. Simulated shells print a demo connection message and
 prompt automatically, then support simple commands such as `help`, `ls`, `pwd`,
 `cat`, `uptime`, `clear`, and `exit`. Fake encrypted demo secrets unlock with
 the simulation-only master password `simulation`.
+
+Reusable action examples live in `examples/actions/`. They include forwarded
+VNC, direct VNC, and a "Send file to home" workflow that uses `fzf` when
+available and `scp` to copy a selected local file to the remote host.
 
 From the repository root, the helper scripts can launch development builds and
 optionally use copied demo data or simulation mode:
@@ -328,7 +333,8 @@ currently focused on fast browsing, searching, inspection, connection launching,
 and vault editing for folders, hosts, identities, jump chains, and forwards. The
 TUI can select or clear a host's identity fingerprint from the local identity
 mappings. Creating, renaming, editing, and removing local identity mappings still
-happens through the CLI, as does editing raw SSH options.
+happens through the CLI. Machine-local capability mappings for actions are also
+managed through the CLI. Raw SSH options are still edited outside the TUI.
 
 Launch it with the same configuration selection behavior as `stassh`:
 
@@ -799,12 +805,23 @@ options instead of referencing the GUI's temporary config file.
 
 Actions are reusable workflows stored in `vault.json`. A common action can apply
 to any host, while host-specific actions can still be attached to a single host
-for special cases. Actions can add temporary SSH forwards, run a command as the
-SSH session command, launch a local tool or script, and clean up local
-subprocesses when SSH exits.
+for special cases. Actions can add temporary SSH forwards, run local preparation
+commands, run a command as the SSH session command, launch a local tool or
+script, and clean up local subprocesses when SSH exits.
 
-There is not yet a CLI or TUI editor for actions, so configure them by editing
-`vault.json` and `local.json`.
+Action authoring is JSON-first in v1.0, so configure actions by editing
+`vault.json`. Machine-local executable paths can be managed with
+`stassh capability` instead of editing `local.json` by hand:
+
+```bash
+stassh capability map vnc-viewer-delay "$HOME/bin/stassh-vnc-viewer-delay"
+stassh capability map send-file-scp "$HOME/bin/stassh-send-file-scp"
+stassh capability list
+stassh capability diagnose send-file-scp
+```
+
+See `HOWTO-Actions.md` for the full schema and `examples/actions/` for working
+VNC and send-file snippets.
 
 Common actions live at the top level of `vault.json`, beside the existing
 `folders` and `hosts` arrays:
@@ -840,6 +857,15 @@ Common actions live at the top level of `vault.json`, beside the existing
         "capability": "vnc-viewer-delay",
         "args": ["{HOST}::5900"]
       }
+    },
+    {
+      "id": "33333333-3333-3333-3333-333333333333",
+      "name": "Send file to home",
+      "local_prepare": {
+        "capability": "send-file-scp",
+        "args": ["{HOST}", "{PORT}", "{USER}", "~"]
+      },
+      "remote_command": "true"
     }
   ],
   "folders": [
@@ -863,6 +889,10 @@ Machine-local tools are configured in `local.json`:
     {
       "name": "vnc-viewer-delay",
       "path": "/home/alice/bin/stassh-vnc-viewer-delay"
+    },
+    {
+      "name": "send-file-scp",
+      "path": "/home/alice/bin/stassh-send-file-scp"
     }
   ]
 }
@@ -894,6 +924,7 @@ Run an action from the CLI:
 ```bash
 stassh action web "VNC forwarded"
 stassh action web "VNC direct"
+stassh action web "Send file to home"
 ```
 
 Use dry-run mode to inspect the resolved action without opening SSH or launching
@@ -901,12 +932,13 @@ the local tool:
 
 ```bash
 stassh action web "VNC forwarded" --dry-run
+stassh action web "Send file to home" --dry-run
 stassh --output json action web "VNC forwarded" --dry-run
 ```
 
 Dry-run output includes allocated automatic ports, the exact OpenSSH command, and
-the resolved local launch command. This is useful for diagnosing forwarded VNC
-failures.
+the resolved local prepare/launch commands. This is useful for diagnosing
+forwarded VNC and local helper setup.
 
 In `stassh-tui`, select a host, press `a`, choose an action, and press `Enter`.
 The TUI leaves the alternate screen while the action runs and restores itself
