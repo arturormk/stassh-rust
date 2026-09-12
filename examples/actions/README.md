@@ -19,6 +19,8 @@ template variables, dry-run workflow, and debugging checklist.
   pattern, not as a file to copy unchanged.
 - `stassh-vnc-viewer-delay`: local wrapper script used by the VNC examples.
 - `stassh-send-file-scp`: local wrapper script used by the send-file example.
+- `stassh-send-directory-rsync`: local wrapper script used by the directory
+  sync example.
 
 ## Included Actions
 
@@ -31,6 +33,9 @@ The examples in `vault.json` define these common workflows:
   the remote host's directly reachable VNC port.
 - `Send file to home`: opens a lightweight local file picker and copies the
   selected file to the remote host's home directory with `scp`.
+- `Sync directory to home`: opens a lightweight local directory picker and
+  syncs the selected directory to the remote host's home directory with
+  `rsync`.
 
 The examples in `local.json` show the matching machine-local capability
 mapping. Adjust the path for your machine:
@@ -39,10 +44,13 @@ mapping. Adjust the path for your machine:
 mkdir -p "$HOME/bin"
 cp examples/actions/stassh-vnc-viewer-delay "$HOME/bin/"
 cp examples/actions/stassh-send-file-scp "$HOME/bin/"
+cp examples/actions/stassh-send-directory-rsync "$HOME/bin/"
 chmod 755 "$HOME/bin/stassh-vnc-viewer-delay"
 chmod 755 "$HOME/bin/stassh-send-file-scp"
+chmod 755 "$HOME/bin/stassh-send-directory-rsync"
 stassh capability map vnc-viewer-delay "$HOME/bin/stassh-vnc-viewer-delay"
 stassh capability map send-file-scp "$HOME/bin/stassh-send-file-scp"
+stassh capability map send-directory-rsync "$HOME/bin/stassh-send-directory-rsync"
 ```
 
 The helper script expects `xtightvncviewer`. For forwarded VNC targets it uses
@@ -56,6 +64,7 @@ before running actions against a real host:
 stassh action <host> "VNC forwarded" --dry-run
 stassh action <host> "VNC direct" --dry-run
 stassh action <host> "Send file to home" --dry-run
+stassh action <host> "Sync directory to home" --dry-run
 ```
 
 ## Send File Example
@@ -65,7 +74,7 @@ The helper script starts from the user's home directory by default, lets you
 select a file with `fzf` or a fallback picker, then runs:
 
 ```text
-scp -P <port> <selected-file> <user>@<host>:~/
+scp -F <stassh-temp-config> <selected-file> <stassh-host-alias>:~/
 ```
 
 If `fzf` is installed, the helper uses it over a precomputed file list rooted
@@ -100,11 +109,18 @@ The action's `remote_command` is `true`. That means the transfer happens first
 as a local preparation step, and stassh only runs a tiny SSH command afterward
 if the transfer succeeded.
 
-This example is intentionally simple. It uses the resolved `{HOST}`, `{PORT}`,
-and `{USER}` template values, but it does not automatically apply stassh
-jump-chain or identity mappings to `scp`. For hosts that require jump hosts or
-specific identity files, adapt the helper script or use an OpenSSH config entry
-that `scp` can already resolve.
+The helper receives `{SSH_CONFIG}` and `{SSH_DEST}` from stassh, so `scp` uses
+the same resolved OpenSSH configuration as the SSH session, including port,
+username, jump-chain, identity mapping, forwards, and raw SSH options.
+
+Use the same pattern for `rsync` helpers:
+
+```bash
+rsync -e "ssh -F $ssh_config" -- "$source" "$ssh_dest:$remote_dir/"
+```
+
+Actions can also pass `{SSH_RSH}` directly when a helper wants the rendered
+`ssh -F <stassh-temp-config>` value for `rsync -e`.
 
 Dry-run shows the rendered helper command:
 
@@ -112,9 +128,51 @@ Dry-run shows the rendered helper command:
 stassh action <host> "Send file to home" --dry-run
 ```
 
+## Sync Directory Example
+
+`Sync directory to home` uses `local_prepare` to run the
+`send-directory-rsync` capability. The helper script starts from the user's
+home directory by default, lets you select a directory with `fzf` or a fallback
+picker, then runs:
+
+```text
+rsync -az -e <stassh-ssh-rsh> <selected-directory>/ <stassh-host-alias>:~/<selected-directory-name>/
+```
+
+The action passes `{SSH_RSH}` and `{SSH_DEST}` to the helper. `{SSH_RSH}`
+expands to the remote shell command `rsync -e` expects, while `{SSH_DEST}`
+expands to the generated host alias in the temporary stassh OpenSSH config.
+
+Set `STASSH_SEND_DIRECTORY_START` to choose a different directory-list root:
+
+```bash
+STASSH_SEND_DIRECTORY_START="$HOME/projects" stassh action <host> "Sync directory to home"
+```
+
+Hidden dot directories are hidden from the `fzf` and numbered-menu pickers by
+default. Include them with:
+
+```bash
+STASSH_SEND_DIRECTORY_HIDDEN=1 stassh action <host> "Sync directory to home"
+```
+
+You can force a picker with `STASSH_SEND_DIRECTORY_PICKER`:
+
+```bash
+STASSH_SEND_DIRECTORY_PICKER=fzf stassh action <host> "Sync directory to home"
+STASSH_SEND_DIRECTORY_PICKER=dialog stassh action <host> "Sync directory to home"
+STASSH_SEND_DIRECTORY_PICKER=menu stassh action <host> "Sync directory to home"
+```
+
+Dry-run shows the rendered helper command:
+
+```bash
+stassh action <host> "Sync directory to home" --dry-run
+```
+
 ## Creating New Examples
 
-Action authoring is intentionally JSON-first in v1.0. A good way to create a new
+Action authoring is intentionally JSON-first. A good way to create a new
 action is to point an AI coding agent or ChatGPT at `HOWTO-Actions.md`, describe
 the exact workflow you want, and ask it to produce:
 

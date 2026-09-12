@@ -155,10 +155,12 @@ release is stored as `1.0.0` while the CLI/TUI version output displays `1.0`.
 To build the Linux packages locally:
 
 ```bash
-cd apps/stassh-gui
-npm install
-npm run tauri -- build --ci --bundles deb,rpm
+./quickstart-stassh-gui.sh
 ```
+
+The helper asks which combination of AppImage, `.deb`, and `.rpm` bundles to
+build, then can offer to install a successfully built `.deb` or `.rpm` package.
+For non-interactive use, pass `--bundle`, for example `--bundle deb,rpm`.
 
 The package workflow runs only when a tag is pushed. It accepts tags such as
 `v1.0` or `v1.0.0` when the minor version is even, verifies the tag matches the
@@ -190,8 +192,9 @@ prompt automatically, then support simple commands such as `help`, `ls`, `pwd`,
 the simulation-only master password `simulation`.
 
 Reusable action examples live in `examples/actions/`. They include forwarded
-VNC, direct VNC, and a "Send file to home" workflow that uses `fzf` when
-available and `scp` to copy a selected local file to the remote host.
+VNC, direct VNC, a "Send file to home" workflow that uses `scp`, and a "Sync
+directory to home" workflow that uses `rsync` with stassh's resolved SSH
+configuration.
 
 From the repository root, the helper scripts can launch development builds and
 optionally use copied demo data or simulation mode:
@@ -577,7 +580,9 @@ Current GUI capabilities:
 - edit local, remote, and dynamic forwards from a dedicated inspector pane or
   host editor using structured fields and port validation
 - double-click or press Connect to open an embedded terminal session using the
-  system `ssh`
+  system `ssh`; GUI-managed sessions set `TERM=xterm-256color` for the spawned
+  SSH process so remote terminal applications can detect xterm-compatible color
+  capabilities
 - keep multiple SSH sessions open as individual terminal tabs
 - create independent `Layout {n}` tabs that show existing terminal sessions as
   equal grids or a main pane plus secondary grid
@@ -588,6 +593,8 @@ Current GUI capabilities:
 - make the selected terminal pane internally full-screen inside the app window
 - search terminal scrollback from the focused pane, with optional
   case-sensitive matching
+- copy selected terminal text with `Ctrl+Shift+C` and paste clipboard text with
+  `Ctrl+Shift+V`
 - show host notes in terminal headers when notes are available
 - confirm before closing a still-running terminal session
 - close an exited focused terminal by pressing `Enter`; layout tabs are removed
@@ -811,19 +818,20 @@ for special cases. Actions can add temporary SSH forwards, run local preparation
 commands, run a command as the SSH session command, launch a local tool or
 script, and clean up local subprocesses when SSH exits.
 
-Action authoring is JSON-first in v1.0, so configure actions by editing
+Action authoring is JSON-first, so configure actions by editing
 `vault.json`. Machine-local executable paths can be managed with
 `stassh capability` instead of editing `local.json` by hand:
 
 ```bash
 stassh capability map vnc-viewer-delay "$HOME/bin/stassh-vnc-viewer-delay"
 stassh capability map send-file-scp "$HOME/bin/stassh-send-file-scp"
+stassh capability map send-directory-rsync "$HOME/bin/stassh-send-directory-rsync"
 stassh capability list
 stassh capability diagnose send-file-scp
 ```
 
 See `HOWTO-Actions.md` for the full schema and `examples/actions/` for working
-VNC and send-file snippets.
+VNC, send-file, and directory-sync snippets.
 
 Common actions live at the top level of `vault.json`, beside the existing
 `folders` and `hosts` arrays:
@@ -865,7 +873,16 @@ Common actions live at the top level of `vault.json`, beside the existing
       "name": "Send file to home",
       "local_prepare": {
         "capability": "send-file-scp",
-        "args": ["{HOST}", "{PORT}", "{USER}", "~"]
+        "args": ["{SSH_CONFIG}", "{SSH_DEST}", "~"]
+      },
+      "remote_command": "true"
+    },
+    {
+      "id": "44444444-4444-4444-4444-444444444444",
+      "name": "Sync directory to home",
+      "local_prepare": {
+        "capability": "send-directory-rsync",
+        "args": ["{SSH_RSH}", "{SSH_DEST}", "~"]
       },
       "remote_command": "true"
     }
@@ -895,6 +912,10 @@ Machine-local tools are configured in `local.json`:
     {
       "name": "send-file-scp",
       "path": "/home/alice/bin/stassh-send-file-scp"
+    },
+    {
+      "name": "send-directory-rsync",
+      "path": "/home/alice/bin/stassh-send-directory-rsync"
     }
   ]
 }
@@ -927,6 +948,7 @@ Run an action from the CLI:
 stassh action web "VNC forwarded"
 stassh action web "VNC direct"
 stassh action web "Send file to home"
+stassh action web "Sync directory to home"
 ```
 
 Use dry-run mode to inspect the resolved action without opening SSH or launching
@@ -935,6 +957,7 @@ the local tool:
 ```bash
 stassh action web "VNC forwarded" --dry-run
 stassh action web "Send file to home" --dry-run
+stassh action web "Sync directory to home" --dry-run
 stassh --output json action web "VNC forwarded" --dry-run
 ```
 

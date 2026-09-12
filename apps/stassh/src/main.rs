@@ -17,11 +17,12 @@ use stassh_core::openssh::{
 };
 use stassh_core::{
     AddFolder, AddHost, ForwardDefinition, IdentityImportContext, OpenSshIdentityResolver,
-    ResolvedActionPlan, ResolvedLocalCommand, UpdateHost, Vault, derive_identity_from_file,
-    ensure_home_stassh_permissions, export_openssh_config, import_openssh_config_with_identities,
-    load_local_config, load_vault, local_config_path, parse_prepare_env, prepare_openssh_command,
-    read_openssh_config_with_includes, resolve_action_local_prepare, resolve_action_plan,
-    save_local_config, save_secrets, save_vault, secrets_path, selector, vault_path,
+    ResolvedActionPlan, ResolvedActionPrepare, ResolvedLocalCommand, UpdateHost, Vault,
+    derive_identity_from_file, ensure_home_stassh_permissions, export_openssh_config,
+    import_openssh_config_with_identities, load_local_config, load_vault, local_config_path,
+    parse_prepare_env, prepare_openssh_command, read_openssh_config_with_includes,
+    resolve_action_local_prepare, resolve_action_plan, save_local_config, save_secrets, save_vault,
+    secrets_path, selector, vault_path,
 };
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -369,10 +370,11 @@ struct ActionRunResult {
     local_exit: Option<ExitStatus>,
 }
 
-fn run_action_prepare(command: Option<&ResolvedLocalCommand>) -> Result<HashMap<String, String>> {
-    let Some(command) = command else {
+fn run_action_prepare(prepare: Option<&ResolvedActionPrepare>) -> Result<HashMap<String, String>> {
+    let Some(prepare) = prepare else {
         return Ok(HashMap::new());
     };
+    let command = &prepare.command;
     eprintln!("running local prepare: {}", display_local_command(command));
     let output = local_command(command)
         .stdout(Stdio::piped())

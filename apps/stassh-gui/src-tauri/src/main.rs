@@ -10,8 +10,8 @@ use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system}
 use serde::{Deserialize, Serialize};
 use stassh_core::{
     ActionDefinition, AddFolder, AddHost, FileStamp, ForwardDefinition, HostSelector, LocalConfig,
-    ResolvedActionPlan, ResolvedLocalCommand, SecretField, SecretsStore, SimulatedShell,
-    TempOpenSshConfig, UpdateHost, Vault, demo_workspace, ensure_file_unchanged,
+    ResolvedActionPlan, ResolvedActionPrepare, ResolvedLocalCommand, SecretField, SecretsStore,
+    SimulatedShell, TempOpenSshConfig, UpdateHost, Vault, demo_workspace, ensure_file_unchanged,
     ensure_home_stassh_permissions, file_stamp, load_local_config, load_secrets, load_vault,
     local_config_path, parse_prepare_env, prepare_openssh_command, resolve_action_local_prepare,
     resolve_action_plan, save_vault, secrets_path, simulated_remote_command_output,
@@ -20,6 +20,8 @@ use stassh_core::{
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 use zeroize::Zeroize;
+
+const GUI_TERMINAL_TERM: &str = "xterm-256color";
 
 fn main() {
     let simulation = std::env::args_os().any(|arg| arg == "--simulation");
@@ -767,11 +769,12 @@ fn local_command_view(command: &ResolvedLocalCommand) -> LocalCommandView {
 }
 
 fn run_action_prepare(
-    command: Option<&ResolvedLocalCommand>,
+    prepare: Option<&ResolvedActionPrepare>,
 ) -> Result<HashMap<String, String>, String> {
-    let Some(command) = command else {
+    let Some(prepare) = prepare else {
         return Ok(HashMap::new());
     };
+    let command = &prepare.command;
     let output = local_command(command)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1445,8 +1448,7 @@ fn start_terminal_session(
             pixel_height: 0,
         })
         .map_err(error_message)?;
-    let mut command = CommandBuilder::new(program);
-    command.args(args);
+    let command = terminal_command(program, args);
     let mut child = pair.slave.spawn_command(command).map_err(error_message)?;
     drop(pair.slave);
     let local_child = match spawn_local_launch(local_launch.as_ref()) {
@@ -1509,6 +1511,13 @@ fn start_terminal_session(
         session_id,
         initial_output: String::new(),
     })
+}
+
+fn terminal_command(program: OsString, args: Vec<OsString>) -> CommandBuilder {
+    let mut command = CommandBuilder::new(program);
+    command.args(args);
+    command.env("TERM", GUI_TERMINAL_TERM);
+    command
 }
 
 #[tauri::command]
@@ -1622,6 +1631,23 @@ fn error_message(error: impl std::fmt::Display) -> String {
 mod tests {
     use super::*;
     use stassh_core::save_secrets;
+
+    #[test]
+    fn terminal_command_sets_xterm_256color_term() {
+        let command = terminal_command(
+            OsString::from("ssh"),
+            vec![
+                OsString::from("-p"),
+                OsString::from("22"),
+                OsString::from("web.example"),
+            ],
+        );
+
+        assert_eq!(
+            command.get_env("TERM"),
+            Some(std::ffi::OsStr::new("xterm-256color"))
+        );
+    }
 
     fn workspace_with_secrets() -> (Workspace, Uuid) {
         let mut vault = Vault::new();

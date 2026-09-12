@@ -197,6 +197,30 @@ test("preserves terminal scrollback across layout tab changes", async ({ page })
   await expect(page.getByTestId("terminal-pane-web-prod-01").locator(".terminalFindCount")).toHaveText("Match");
 });
 
+test("inspector follows the last selected host across tree items and terminal panes", async ({ page }) => {
+  await openSimulationTerminals(page, ["web-prod-01", "db-prod-01"]);
+  await expect(page.getByRole("heading", { name: "db-prod-01" })).toBeVisible();
+
+  await page.getByTestId("host-row-web-prod-01").click();
+  await expect(page.getByTestId("tab-db-prod-01")).toHaveClass(/active/);
+  await expect(page.getByRole("heading", { name: "web-prod-01" })).toBeVisible();
+
+  await page.getByTestId("create-layout-tab").click();
+  await page.getByTestId("terminal-pane-db-prod-01").click();
+  await expect(page.getByRole("heading", { name: "db-prod-01" })).toBeVisible();
+
+  const sessionId = await terminalSessionId(page, "db-prod-01");
+  await page.evaluate((sessionId) => {
+    window.__STASSH_TEST_API__?.emit("session-exit", { sessionId, message: "EXITED" });
+  }, sessionId);
+  await page.getByTestId("terminal-pane-db-prod-01").click();
+  await expect(page.getByRole("heading", { name: "db-prod-01" })).toBeVisible();
+  await expect(page.getByTestId("tab-db-prod-01")).toHaveClass(/terminalExited/);
+
+  await page.getByTestId("folder-row-Staging").click();
+  await expect(page.getByRole("heading", { name: "Staging" })).toBeVisible();
+});
+
 test("closes a selected exited terminal when Enter is pressed", async ({ page }) => {
   await openSimulationTerminals(page, ["web-prod-01", "db-prod-01"]);
   await page.getByTestId("tab-web-prod-01").click();

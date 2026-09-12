@@ -9,6 +9,10 @@
     {
       "name": "send-file-scp",
       "path": "/home/alice/bin/stassh-send-file-scp"
+    },
+    {
+      "name": "send-directory-rsync",
+      "path": "/home/alice/bin/stassh-send-directory-rsync"
     }
   ]
 }

@@ -1,20 +1,13 @@
 #!/bin/sh
 set -eu
 
-host="${1:-}"
-port="${2:-22}"
-user="${3:-}"
-remote_dir="${4:-~}"
+ssh_config="${1:-}"
+ssh_dest="${2:-}"
+remote_dir="${3:-~}"
 
-if [ -z "$host" ]; then
-  echo "usage: stassh-send-file-scp <host> <port> [user] [remote-dir]" >&2
+if [ -z "$ssh_config" ] || [ -z "$ssh_dest" ]; then
+  echo "usage: stassh-send-file-scp <ssh-config> <ssh-dest> [remote-dir]" >&2
   exit 2
-fi
-
-if [ -n "$user" ]; then
-  destination="$user@$host:$remote_dir/"
-else
-  destination="$host:$remote_dir/"
 fi
 
 select_with_fzf() {
@@ -82,5 +75,5 @@ if [ -z "$file" ]; then
   exit 1
 fi
 
-scp -P "$port" -- "$file" "$destination" >&2
+scp -F "$ssh_config" -- "$file" "$ssh_dest:$remote_dir/" >&2
 printf 'LOCAL_FILE=%s\n' "$file"

@@ -391,7 +391,7 @@ fn capability_mapping_supports_action_local_launch() {
 }
 
 #[test]
-fn action_dry_run_renders_host_port_for_send_file_prepare() {
+fn action_dry_run_renders_ssh_config_for_send_file_prepare() {
     let dir = temp_dir("send-file-action");
     init_vault(&dir);
     let local_config = local_config_path(&dir);
@@ -428,7 +428,7 @@ fn action_dry_run_renders_host_port_for_send_file_prepare() {
             "name": "Send file to home",
             "local_prepare": {
                 "capability": "send-file-scp",
-                "args": ["{HOST}", "{PORT}", "{USER}", "~"]
+                "args": ["{SSH_CONFIG}", "{SSH_DEST}", "~"]
             },
             "remote_command": "true"
         }
@@ -452,10 +452,25 @@ fn action_dry_run_renders_host_port_for_send_file_prepare() {
         dry_run["plan"]["local_prepare"]["program"],
         helper.display().to_string()
     );
-    assert_eq!(dry_run["plan"]["local_prepare"]["args"][0], "pi.local");
-    assert_eq!(dry_run["plan"]["local_prepare"]["args"][1], "2222");
-    assert_eq!(dry_run["plan"]["local_prepare"]["args"][2], "alice");
-    assert_eq!(dry_run["plan"]["local_prepare"]["args"][3], "~");
+    assert!(
+        dry_run["plan"]["local_prepare"]["args"][0]
+            .as_str()
+            .unwrap()
+            .contains("stassh-")
+    );
+    assert!(
+        dry_run["plan"]["local_prepare"]["args"][1]
+            .as_str()
+            .unwrap()
+            .starts_with("stassh-")
+    );
+    assert_eq!(dry_run["plan"]["local_prepare"]["args"][2], "~");
+    assert!(
+        dry_run["plan"]["ssh_command"]["display"]
+            .as_str()
+            .unwrap()
+            .starts_with("ssh -F ")
+    );
 }
 
 #[test]

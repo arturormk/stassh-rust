@@ -14,8 +14,8 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::Backend;
 use stassh_core::{
-    ResolvedActionPlan, ResolvedHost, ResolvedLocalCommand, SimulatedShell, parse_prepare_env,
-    prepare_openssh_command, resolve_action_local_prepare, resolve_action_plan,
+    ResolvedActionPlan, ResolvedActionPrepare, ResolvedHost, ResolvedLocalCommand, SimulatedShell,
+    parse_prepare_env, prepare_openssh_command, resolve_action_local_prepare, resolve_action_plan,
     simulated_remote_command_output,
 };
 use uuid::Uuid;
@@ -237,13 +237,14 @@ fn restore_tui_terminal<B: Backend + io::Write>(terminal: &mut Terminal<B>) -> R
 }
 
 fn run_action_after_terminal_release(
-    local_prepare: Option<ResolvedLocalCommand>,
+    local_prepare: Option<ResolvedActionPrepare>,
     initial_plan: Option<ResolvedActionPlan>,
     resolved: &stassh_core::ResolvedHost,
     action: &stassh_core::ActionDefinition,
     app: &App,
 ) -> Result<ExitStatus> {
-    let prepare_env = if let Some(command) = &local_prepare {
+    let prepare_env = if let Some(prepare) = &local_prepare {
+        let command = &prepare.command;
         eprintln!("running local prepare: {}", display_local_command(command));
         let output = local_command(command)
             .stdout(Stdio::piped())

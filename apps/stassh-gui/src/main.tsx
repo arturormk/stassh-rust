@@ -304,6 +304,7 @@ function folderAncestorIds(folders: FolderView[], folderId: Id) {
 function App() {
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [inspectorSelection, setInspectorSelection] = useState<Selection | null>(null);
   const [details, setDetails] = useState<HostDetails | null>(null);
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -355,19 +356,7 @@ function App() {
     }
   }, [activeTabId, tabs]);
 
-  const inspectorHostId = useMemo(() => {
-    if (!activeTab) return selection?.type === "host" ? selection.id : null;
-    if (activeTab.type === "terminal") return activeTab.hostId;
-    if (activeTab.type === "layout") {
-      const activeSessionId = activeTab.activeSessionId ?? activeTab.sessionIds[0];
-      return (
-        tabs.find(
-          (tab): tab is Extract<Tab, { type: "terminal" }> => tab.type === "terminal" && tab.sessionId === activeSessionId,
-        )?.hostId ?? null
-      );
-    }
-    return null;
-  }, [activeTab, selection, tabs]);
+  const inspectorHostId = inspectorSelection?.type === "host" ? inspectorSelection.id : null;
 
   useEffect(() => {
     if (!workspace || !inspectorHostId) {
@@ -476,6 +465,7 @@ function App() {
     const host = workspace?.hosts.find((item) => item.id === hostId);
     if (!host || !workspace) return;
     setSelection({ type: "host", id: hostId });
+    setInspectorSelection({ type: "host", id: hostId });
     setExpanded((current) => {
       const next = new Set(current);
       for (const folderId of folderAncestorIds(workspace.folders, host.folderId)) {
@@ -484,6 +474,37 @@ function App() {
       return next;
     });
     setStatus(`Selected: ${host.path}`);
+  }
+
+  function selectFolder(folderId: Id) {
+    const folder = workspace?.folders.find((item) => item.id === folderId);
+    if (!folder) return;
+    setSelection({ type: "folder", id: folderId });
+    setInspectorSelection({ type: "folder", id: folderId });
+  }
+
+  function selectTreeItem(nextSelection: Selection) {
+    if (nextSelection.type === "host") {
+      selectHost(nextSelection.id);
+    } else {
+      selectFolder(nextSelection.id);
+    }
+  }
+
+  function activateTab(tab: Tab) {
+    setActiveTabId(tab.id);
+    if (tab.type === "terminal") {
+      setInspectorSelection({ type: "host", id: tab.hostId });
+      return;
+    }
+    const terminal = activeLayoutTerminal(tab, tabs);
+    if (terminal) {
+      setInspectorSelection({ type: "host", id: terminal.hostId });
+    }
+  }
+
+  function inspectTerminal(tab: Extract<Tab, { type: "terminal" }>) {
+    setInspectorSelection({ type: "host", id: tab.hostId });
   }
 
   async function loadWorkspace() {
@@ -599,6 +620,7 @@ function App() {
       setTabs((current) => [...current, tab]);
       setTerminalOrder((current) => [...current, session.sessionId]);
       setActiveTabId(session.sessionId);
+      setInspectorSelection({ type: "host", id: host.id });
       setStatus(`Connected: ${host.path}`);
     } catch (err) {
       setStatus(String(err));
@@ -635,8 +657,8 @@ function App() {
       setActiveTabId(nextActiveTabId);
       if (!nextActiveTabId) {
         setSelection((current) => (current?.type === "host" && current.id === tab.hostId ? null : current));
+        setInspectorSelection((current) => (current?.type === "host" && current.id === tab.hostId ? null : current));
       }
-      setDetails((current) => (current?.host.id === tab.hostId ? null : current));
       invoke("close_session", { sessionId: tab.sessionId }).catch(() => undefined);
     } else {
       const next = tabs.filter((item) => item.id !== tab.id);
@@ -667,6 +689,11 @@ function App() {
       },
     ]);
     setActiveTabId(id);
+    if (activeTab?.type === "terminal") {
+      setInspectorSelection({ type: "host", id: activeTab.hostId });
+    } else {
+      setInspectorSelection({ type: "host", id: terminalTabs[terminalTabs.length - 1].hostId });
+    }
     setStatus(`Layout created with ${terminalTabs.length} sessions`);
   }
 
@@ -732,6 +759,10 @@ function App() {
       ];
     });
     if (layoutId) setActiveTabId(layoutId);
+    const sourceTab = tabs.find(
+      (tab): tab is Extract<Tab, { type: "terminal" }> => tab.type === "terminal" && tab.id === sourceTabId,
+    );
+    if (sourceTab) setInspectorSelection({ type: "host", id: sourceTab.hostId });
     if (addedMessage) setStatus(addedMessage);
   }
 
@@ -1060,6 +1091,7 @@ function App() {
       setTabs((current) => [...current, tab]);
       setTerminalOrder((current) => [...current, session.sessionId]);
       setActiveTabId(session.sessionId);
+      setInspectorSelection({ type: "host", id: host.id });
       setStatus(`Running action: ${action.name}`);
     } catch (err) {
       setStatus(String(err));
@@ -1181,9 +1213,7 @@ function App() {
     activeTab,
     tabs,
     workspace,
-    selection,
-    selectedHost,
-    selectedFolder,
+    inspectorSelection,
     details: details?.host.id === inspectorHostId ? details : null,
   });
   const canShowInspector = Boolean(editorMode) || Boolean(inspectorTarget);
@@ -1231,7 +1261,7 @@ function App() {
             expanded={expanded}
             setExpanded={setExpanded}
             selection={selection}
-            setSelection={setSelection}
+            setSelection={selectTreeItem}
             draggingHostIds={draggingHostIds}
             dropTargetFolderId={dropTargetFolderId}
             setDraggingHostIds={setDraggingHostIds}
@@ -1278,7 +1308,7 @@ function App() {
                 } ${tab.type === "terminal" && isTerminalExited(tab) ? "terminalExited" : ""}`}
                 title={tab.type === "terminal" ? `${tab.title} - ${tab.status}` : tab.title}
                 draggable
-                onClick={() => setActiveTabId(tab.id)}
+                onClick={() => activateTab(tab)}
                 onDragStart={(event) => {
                   setDraggingTabId(tab.id);
                   event.dataTransfer.effectAllowed = tab.type === "terminal" ? "copyMove" : "move";
@@ -1385,6 +1415,7 @@ function App() {
             fullscreenSessionId={fullscreenSessionId}
             onInput={writeTerminalInput}
             onActivateTab={setActiveTabId}
+            onInspectTerminal={inspectTerminal}
             onUpdateLayout={updateLayout}
             onRemoveFromLayout={removeSessionFromLayout}
             onEnterFullscreen={setFullscreenSessionId}
@@ -2487,48 +2518,62 @@ function resolveInspectorTarget({
   activeTab,
   tabs,
   workspace,
-  selection,
-  selectedHost,
-  selectedFolder,
+  inspectorSelection,
   details,
 }: {
   activeTab: Tab | null;
   tabs: Tab[];
   workspace: WorkspaceSnapshot;
-  selection: Selection | null;
-  selectedHost: HostView | null;
-  selectedFolder: FolderView | null;
+  inspectorSelection: Selection | null;
   details: HostDetails | null;
 }): InspectorTarget {
-  if (!activeTab) {
-    if (selection?.type === "host" && selectedHost) {
-      return { type: "host", source: "details", host: selectedHost, details, terminal: null };
-    }
-    if (selection?.type === "folder" && selectedFolder) {
-      return { type: "folder", source: "details", folder: selectedFolder };
-    }
-    return null;
+  if (inspectorSelection?.type === "folder") {
+    const folder = workspace.folders.find((item) => item.id === inspectorSelection.id);
+    return folder ? { type: "folder", source: "details", folder } : null;
   }
-  if (activeTab.type === "terminal") {
-    const host = workspace.hosts.find((item) => item.id === activeTab.hostId);
-    return host ? { type: "host", source: "terminal", host, details, terminal: activeTab } : null;
+
+  if (inspectorSelection?.type === "host") {
+    const host = workspace.hosts.find((item) => item.id === inspectorSelection.id);
+    if (!host) return null;
+    const terminal = terminalForHost(inspectorSelection.id, activeTab, tabs);
+    const source = terminal
+      ? activeLayoutTerminal(activeTab, tabs)?.sessionId === terminal.sessionId
+        ? "layout"
+        : "terminal"
+      : "details";
+    return { type: "host", source, host, details, terminal };
   }
-  if (activeTab.type === "layout") {
-    const activeSessionId = activeTab.activeSessionId ?? activeTab.sessionIds[0];
-    const terminal =
-      tabs.find(
-        (tab): tab is Extract<Tab, { type: "terminal" }> => tab.type === "terminal" && tab.sessionId === activeSessionId,
-      ) ?? null;
-    const host = terminal ? workspace.hosts.find((item) => item.id === terminal.hostId) ?? null : null;
-    return host ? { type: "host", source: "layout", host, details, terminal } : { type: "layout", source: "layout", layout: activeTab };
+
+  if (activeTab?.type === "layout") {
+    return { type: "layout", source: "layout", layout: activeTab };
   }
-  if (selection?.type === "host" && selectedHost) {
-    return { type: "host", source: "details", host: selectedHost, details, terminal: null };
-  }
-  if (selection?.type === "folder" && selectedFolder) {
-    return { type: "folder", source: "details", folder: selectedFolder };
-  }
+
   return null;
+}
+
+function activeLayoutTerminal(activeTab: Tab | null, tabs: Tab[]): Extract<Tab, { type: "terminal" }> | null {
+  if (activeTab?.type !== "layout") return null;
+  const activeSessionId = activeTab.activeSessionId ?? activeTab.sessionIds[0];
+  return (
+    tabs.find(
+      (tab): tab is Extract<Tab, { type: "terminal" }> => tab.type === "terminal" && tab.sessionId === activeSessionId,
+    ) ?? null
+  );
+}
+
+function terminalForHost(
+  hostId: Id,
+  activeTab: Tab | null,
+  tabs: Tab[],
+): Extract<Tab, { type: "terminal" }> | null {
+  if (activeTab?.type === "terminal" && activeTab.hostId === hostId) {
+    return activeTab;
+  }
+  const layoutTerminal = activeTab ? activeLayoutTerminal(activeTab, tabs) : null;
+  if (layoutTerminal?.hostId === hostId) {
+    return layoutTerminal;
+  }
+  return tabs.find((tab): tab is Extract<Tab, { type: "terminal" }> => tab.type === "terminal" && tab.hostId === hostId) ?? null;
 }
 
 function TerminalStage(props: {
@@ -2539,6 +2584,7 @@ function TerminalStage(props: {
   fullscreenSessionId: Id | null;
   onInput: (sessionId: Id, data: string) => void;
   onActivateTab: (tabId: Id) => void;
+  onInspectTerminal: (tab: Extract<Tab, { type: "terminal" }>) => void;
   onUpdateLayout: (layoutId: Id, patch: Partial<Extract<Tab, { type: "layout" }>>) => void;
   onRemoveFromLayout: (layoutId: Id, sessionId: Id) => void;
   onEnterFullscreen: (sessionId: Id) => void;
@@ -2668,6 +2714,7 @@ function TerminalStage(props: {
                 }
               }}
               onFocus={() => {
+                props.onInspectTerminal(tab);
                 if (layout && visible) props.onUpdateLayout(layout.id, { activeSessionId: tab.sessionId });
                 else props.onActivateTab(tab.id);
               }}
@@ -2812,6 +2859,25 @@ function TerminalPane({
     terminalRef.current?.focus();
   }
 
+  async function copyTerminalSelection(terminal: Terminal) {
+    const selection = terminal.getSelection();
+    if (!selection) return;
+    try {
+      await navigator.clipboard.writeText(selection);
+    } catch (error) {
+      console.error("terminal copy failed", error);
+    }
+  }
+
+  async function pasteTerminalClipboard(terminal: Terminal) {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) terminal.paste(text);
+    } catch (error) {
+      console.error("terminal paste failed", error);
+    }
+  }
+
   useEffect(() => {
     if (!findOpen) return;
     runFind("next");
@@ -2857,6 +2923,17 @@ function TerminalPane({
 
     terminal.onData((data) => inputRef.current(tab.sessionId, data));
     terminal.attachCustomKeyEventHandler((event) => {
+      if (event.type === "keydown" && activeRef.current && focusedRef.current && event.ctrlKey && event.shiftKey) {
+        const key = event.key.toLowerCase();
+        if (key === "c") {
+          void copyTerminalSelection(terminal);
+          return false;
+        }
+        if (key === "v") {
+          void pasteTerminalClipboard(terminal);
+          return false;
+        }
+      }
       if (
         event.type === "keydown" &&
         activeRef.current &&

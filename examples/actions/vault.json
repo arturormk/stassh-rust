@@ -44,9 +44,24 @@
       "local_prepare": {
         "capability": "send-file-scp",
         "args": [
-          "{HOST}",
-          "{PORT}",
-          "{USER}",
+          "{SSH_CONFIG}",
+          "{SSH_DEST}",
+          "~"
+        ],
+        "env": {}
+      },
+      "forwards": [],
+      "remote_command": "true",
+      "cleanup": []
+    },
+    {
+      "id": "de803b68-a0b1-11f1-aeb4-97f4fa3273a5",
+      "name": "Sync directory to home",
+      "local_prepare": {
+        "capability": "send-directory-rsync",
+        "args": [
+          "{SSH_RSH}",
+          "{SSH_DEST}",
           "~"
         ],
         "env": {}

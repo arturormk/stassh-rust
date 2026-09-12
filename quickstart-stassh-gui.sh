@@ -7,19 +7,22 @@ readonly GUI_BINARY="target/${TARGET}/release/stassh-gui"
 readonly NATIVE_BINARY="target/release/stassh-gui"
 readonly BUNDLES=("appimage" "deb" "rpm")
 
-REQUESTED_BUNDLE="all"
+REQUESTED_BUNDLE=""
+EXPLICIT_BUNDLE_SELECTION=0
+declare -a REQUESTED_BUNDLES=()
 declare -a SUCCEEDED_BUNDLES=()
 declare -a FAILED_BUNDLES=()
 
 usage() {
   cat <<'EOF'
-Usage: ./quickstart-stassh-gui.sh [--bundle appimage|deb|rpm|all]
+Usage: ./quickstart-stassh-gui.sh [--bundle appimage|deb|rpm|all|LIST]
 
 Analyze this system, build the amd64 stassh-gui Tauri executable, and attempt
-the available Linux desktop bundles. This script is intentionally limited to
+the selected Linux desktop bundles. This script is intentionally limited to
 x86_64/amd64 Linux.
 
-By default it tries: AppImage, deb, rpm.
+When --bundle is omitted, the script asks which bundle combination to build.
+LIST may be comma-separated, for example: --bundle deb,rpm.
 EOF
 }
 
@@ -34,6 +37,27 @@ warn() {
 
 info() {
   printf '%s\n' "$*"
+}
+
+prompt_yes_no() {
+  local prompt="$1"
+  local default="${2:-n}"
+  local suffix="[y/N]"
+  local answer
+
+  if [[ "$default" == "y" ]]; then
+    suffix="[Y/n]"
+  fi
+
+  while true; do
+    read -r -p "$prompt $suffix " answer
+    answer="${answer:-$default}"
+    case "$answer" in
+      y|Y|yes|YES) return 0 ;;
+      n|N|no|NO) return 1 ;;
+      *) printf 'Please answer yes or no.\n' ;;
+    esac
+  done
 }
 
 optional_command_status() {
@@ -143,6 +167,23 @@ list_bundle_artifacts() {
   fi
 }
 
+package_artifacts_for_bundle() {
+  local bundle="$1"
+  local pattern
+  local dir
+
+  case "$bundle" in
+    deb) pattern="*.deb" ;;
+    rpm) pattern="*.rpm" ;;
+    *) return 0 ;;
+  esac
+
+  dir="$(bundle_artifact_dir "$bundle")"
+  if [[ -d "$dir" ]]; then
+    find "$dir" -maxdepth 1 -type f -name "$pattern" | sort
+  fi
+}
+
 build_bundle() {
   local bundle="$1"
 
@@ -161,18 +202,97 @@ build_bundle() {
   return "$status"
 }
 
-build_all_requested_bundles() {
+bundle_requested() {
+  local candidate="$1"
+  local bundle
+
+  for bundle in "${REQUESTED_BUNDLES[@]}"; do
+    [[ "$bundle" == "$candidate" ]] && return 0
+  done
+
+  return 1
+}
+
+add_requested_bundle() {
+  local bundle="$1"
+
+  case "$bundle" in
+    appimage|deb|rpm) ;;
+    *) die "unknown bundle: $bundle" ;;
+  esac
+
+  if ! bundle_requested "$bundle"; then
+    REQUESTED_BUNDLES+=("$bundle")
+  fi
+}
+
+set_requested_bundles() {
   local requested_bundle="$1"
   local bundle
+  local raw
+  local normalized
+  local -a selected=()
+
+  REQUESTED_BUNDLES=()
+  requested_bundle="${requested_bundle// /}"
+  requested_bundle="${requested_bundle//$'\t'/}"
+  requested_bundle="${requested_bundle,,}"
+  [[ -n "$requested_bundle" ]] || die "--bundle requires a non-empty value."
 
   if [[ "$requested_bundle" == "all" ]]; then
     for bundle in "${BUNDLES[@]}"; do
-      build_bundle "$bundle" || true
+      add_requested_bundle "$bundle"
     done
     return 0
   fi
 
-  build_bundle "$requested_bundle" || true
+  IFS=',' read -r -a selected <<< "$requested_bundle"
+  for raw in "${selected[@]}"; do
+    normalized="$raw"
+    [[ -n "$normalized" ]] || die "empty bundle in selection: $requested_bundle"
+    add_requested_bundle "$normalized"
+  done
+}
+
+print_bundle_menu() {
+  info "Choose GUI bundle output:"
+  info "  1) AppImage"
+  info "  2) deb"
+  info "  3) rpm"
+  info "  4) AppImage + deb"
+  info "  5) AppImage + rpm"
+  info "  6) deb + rpm"
+  info "  7) AppImage + deb + rpm"
+  info "  q) Quit"
+  info
+}
+
+choose_bundles_interactively() {
+  local choice
+
+  print_bundle_menu
+  while true; do
+    read -r -p "Choose bundles to build: " choice
+    case "$choice" in
+      1) set_requested_bundles "appimage"; break ;;
+      2) set_requested_bundles "deb"; break ;;
+      3) set_requested_bundles "rpm"; break ;;
+      4) set_requested_bundles "appimage,deb"; break ;;
+      5) set_requested_bundles "appimage,rpm"; break ;;
+      6) set_requested_bundles "deb,rpm"; break ;;
+      7) set_requested_bundles "all"; break ;;
+      q|Q) info "No build selected."; exit 0 ;;
+      *) info "Please choose 1-7, or q to quit." ;;
+    esac
+  done
+}
+
+build_requested_bundles() {
+  local bundle
+
+  for bundle in "${REQUESTED_BUNDLES[@]}"; do
+    build_bundle "$bundle" || true
+  done
 }
 
 print_summary() {
@@ -205,6 +325,127 @@ print_summary() {
   fi
 }
 
+install_deb_package() {
+  local path
+
+  path="$(absolute_path "$1")"
+
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get install -y "$path"
+    return $?
+  fi
+
+  if command -v dpkg >/dev/null 2>&1; then
+    sudo dpkg -i "$path"
+    return $?
+  fi
+
+  warn "cannot install .deb automatically because neither apt-get nor dpkg was found."
+  return 1
+}
+
+install_rpm_package() {
+  local path
+
+  path="$(absolute_path "$1")"
+
+  if command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y "$path"
+    return $?
+  fi
+
+  if command -v zypper >/dev/null 2>&1; then
+    sudo zypper --non-interactive install "$path"
+    return $?
+  fi
+
+  if command -v rpm >/dev/null 2>&1; then
+    sudo rpm -Uvh "$path"
+    return $?
+  fi
+
+  warn "cannot install .rpm automatically because dnf, zypper, and rpm were not found."
+  return 1
+}
+
+absolute_path() {
+  local path="$1"
+  local dir
+  local file
+
+  if [[ "$path" == /* ]]; then
+    printf '%s\n' "$path"
+    return 0
+  fi
+
+  dir="$(dirname "$path")"
+  file="$(basename "$path")"
+  printf '%s/%s\n' "$(cd "$dir" && pwd -P)" "$file"
+}
+
+install_package_artifact() {
+  local path="$1"
+
+  case "$path" in
+    *.deb) install_deb_package "$path" ;;
+    *.rpm) install_rpm_package "$path" ;;
+    *) warn "unsupported package artifact: $path"; return 1 ;;
+  esac
+}
+
+offer_package_install() {
+  local bundle
+  local artifact
+  local -a packages=()
+
+  for bundle in "${SUCCEEDED_BUNDLES[@]}"; do
+    while IFS= read -r artifact; do
+      packages+=("$artifact")
+    done < <(package_artifacts_for_bundle "$bundle")
+  done
+
+  if ((${#packages[@]} == 0)); then
+    return 0
+  fi
+
+  info
+  info "Installable packages:"
+  for artifact in "${packages[@]}"; do
+    info "  $artifact"
+  done
+
+  if ((${#packages[@]} == 1)); then
+    if prompt_yes_no "Install ${packages[0]} now?" "n"; then
+      install_package_artifact "${packages[0]}"
+    fi
+    return 0
+  fi
+
+  info
+  info "Choose a package to install:"
+  local index
+  local choice
+  for index in "${!packages[@]}"; do
+    info "  $((index + 1))) ${packages[$index]}"
+  done
+  info "  q) Skip install"
+
+  while true; do
+    read -r -p "Choose package to install: " choice
+    case "$choice" in
+      q|Q|"") info "Install skipped."; return 0 ;;
+      *[!0-9]*) info "Please choose a package number, or q to skip." ;;
+      *)
+        if ((choice >= 1 && choice <= ${#packages[@]})); then
+          install_package_artifact "${packages[$((choice - 1))]}"
+          return 0
+        fi
+        info "Please choose a package number, or q to skip."
+        ;;
+    esac
+  done
+}
+
 parse_args() {
   while (($#)); do
     case "$1" in
@@ -216,9 +457,11 @@ parse_args() {
         shift
         [[ $# -gt 0 ]] || die "--bundle requires a value."
         REQUESTED_BUNDLE="$1"
+        EXPLICIT_BUNDLE_SELECTION=1
         ;;
       --bundle=*)
         REQUESTED_BUNDLE="${1#--bundle=}"
+        EXPLICIT_BUNDLE_SELECTION=1
         ;;
       *)
         die "unknown argument: $1"
@@ -227,10 +470,9 @@ parse_args() {
     shift
   done
 
-  case "$REQUESTED_BUNDLE" in
-    all|appimage|deb|rpm) ;;
-    *) die "unknown bundle: $REQUESTED_BUNDLE" ;;
-  esac
+  if ((EXPLICIT_BUNDLE_SELECTION)); then
+    set_requested_bundles "$REQUESTED_BUNDLE"
+  fi
 }
 
 main() {
@@ -242,8 +484,13 @@ main() {
   ensure_rust_target
   ensure_node_dependencies
 
-  build_all_requested_bundles "$REQUESTED_BUNDLE"
+  if ((${#REQUESTED_BUNDLES[@]} == 0)); then
+    choose_bundles_interactively
+  fi
+
+  build_requested_bundles
   print_summary
+  offer_package_install
 
   if ((${#FAILED_BUNDLES[@]})); then
     exit 1

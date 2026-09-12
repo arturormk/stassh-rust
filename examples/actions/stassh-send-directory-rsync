@@ -1,0 +1,80 @@
+#!/bin/sh
+set -eu
+
+ssh_rsh="${1:-}"
+ssh_dest="${2:-}"
+remote_dir="${3:-~}"
+
+if [ -z "$ssh_rsh" ] || [ -z "$ssh_dest" ]; then
+  echo "usage: stassh-send-directory-rsync <ssh-rsh> <ssh-dest> [remote-dir]" >&2
+  exit 2
+fi
+
+select_with_fzf() {
+  find_directories | fzf --prompt='Sync directory> '
+}
+
+select_with_dialog() {
+  start="${STASSH_SEND_DIRECTORY_START:-$HOME/}"
+  dialog --stdout --title "Sync directory" --dselect "$start" 0 0
+}
+
+find_directories() {
+  root="${STASSH_SEND_DIRECTORY_START:-$HOME}"
+  if [ "${STASSH_SEND_DIRECTORY_HIDDEN:-0}" = 1 ]; then
+    find "$root" -type d 2>/dev/null
+  else
+    find "$root" \( -path '*/.*' -prune \) -o -type d -print 2>/dev/null
+  fi
+}
+
+select_with_menu() {
+  tmp="${TMPDIR:-/tmp}/stassh-send-directory-rsync.$$"
+  find_directories > "$tmp"
+  if [ ! -s "$tmp" ]; then
+    rm -f "$tmp"
+    return 1
+  fi
+
+  awk '{ printf "%4d  %s\n", NR, $0 }' "$tmp" > /dev/tty
+  printf 'Sync directory number: ' > /dev/tty
+  read -r number < /dev/tty
+  selected="$(awk -v n="$number" 'NR == n { print; found = 1 } END { exit found ? 0 : 1 }' "$tmp")"
+  rm -f "$tmp"
+  printf '%s\n' "$selected"
+}
+
+case "${STASSH_SEND_DIRECTORY_PICKER:-auto}" in
+auto)
+  if command -v fzf >/dev/null 2>&1; then
+    directory="$(select_with_fzf)"
+  elif command -v dialog >/dev/null 2>&1 && [ -t 2 ]; then
+    directory="$(select_with_dialog)"
+  else
+    directory="$(select_with_menu)"
+  fi
+  ;;
+fzf)
+  directory="$(select_with_fzf)"
+  ;;
+dialog)
+  directory="$(select_with_dialog)"
+  ;;
+menu)
+  directory="$(select_with_menu)"
+  ;;
+*)
+  echo "unsupported STASSH_SEND_DIRECTORY_PICKER: $STASSH_SEND_DIRECTORY_PICKER" >&2
+  echo "expected one of: auto, fzf, dialog, menu" >&2
+  exit 2
+  ;;
+esac
+
+if [ -z "$directory" ]; then
+  echo "no directory selected" >&2
+  exit 1
+fi
+
+base="$(basename "$directory")"
+rsync -az -e "$ssh_rsh" -- "$directory/" "$ssh_dest:$remote_dir/$base/" >&2
+printf 'LOCAL_DIRECTORY=%s\n' "$directory"

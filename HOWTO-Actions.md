@@ -212,12 +212,23 @@ Actions can use these template variables:
 - `{HOST}`: resolved target hostname.
 - `{USER}`: resolved username, or an empty string when no username is set.
 - `{PORT}`: resolved SSH port.
+- `{SSH_CONFIG}`: temporary OpenSSH config path for the resolved action host.
+- `{SSH_ALIAS}`: generated Host alias in `{SSH_CONFIG}`.
+- `{SSH_DEST}`: same as `{SSH_ALIAS}`, intended for transfer destinations such
+  as `{SSH_DEST}:~/`.
+- `{SSH_RSH}`: rendered `ssh -F <config>` command for tools such as
+  `rsync -e`.
+- `{SSH_COMMAND}`: rendered `ssh -F <config> <alias>` command for
+  display/debugging.
 - `{LOCAL_PORT:name}`: local port allocated or resolved for the named action
   forward.
 - `{ENV:NAME}`: value emitted by `local_prepare` as a `NAME=value` line.
 
 Unknown variables cause action resolution to fail. This is useful because it
 catches misspelled forward names and missing preparation output during dry-run.
+Using any `SSH_*` transfer variable makes stassh create a temporary config-backed
+host alias for that local command, even when the host could otherwise be reached
+with a direct `ssh -p ...` command.
 
 ## Action Forwards
 
@@ -456,7 +467,7 @@ exits non-zero if the transfer fails.
   "name": "Send file to home",
   "local_prepare": {
     "capability": "send-file-scp",
-    "args": ["{HOST}", "{PORT}", "{USER}", "~"]
+    "args": ["{SSH_CONFIG}", "{SSH_DEST}", "~"]
   },
   "remote_command": "true"
 }
@@ -474,10 +485,27 @@ default, and falls back to simpler terminal pickers. The action demonstrates
 that `local_prepare` can be used for interactive local setup, not only for
 emitting environment variables.
 
-This simple helper uses direct `scp` with `{HOST}`, `{PORT}`, and `{USER}`. It
-does not automatically apply stassh jump-chain or identity mappings to `scp`.
-For hosts that require those, adapt the helper script or use an OpenSSH config
-entry that `scp` can already resolve.
+The helper uses `scp -F "{SSH_CONFIG}"` with `{SSH_DEST}`, so it gets the same
+resolved jump-chain, identity mapping, port, username, forwards, and raw SSH
+options that stassh uses for the SSH session.
+
+For `rsync`, pass `{SSH_RSH}` and `{SSH_DEST}` to the helper script:
+
+```json
+{
+  "id": "99999999-aaaa-bbbb-cccc-eeeeeeeeeeee",
+  "name": "Sync directory to home",
+  "local_prepare": {
+    "capability": "send-directory-rsync",
+    "args": ["{SSH_RSH}", "{SSH_DEST}", "~"]
+  },
+  "remote_command": "true"
+}
+```
+
+```bash
+rsync -e "$ssh_rsh" -- "$source" "$ssh_dest:$remote_dir/"
+```
 
 ## Cleanup
 

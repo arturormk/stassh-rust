@@ -11,7 +11,7 @@ use crate::model::{
     ActionDefinition, ActionForwardDefinition, ActionLocalCommand, ActionPort, ForwardDefinition,
     ResolvedHost,
 };
-use crate::openssh::{OpenSshCommand, TempOpenSshConfig};
+use crate::openssh::{OpenSshCommand, TempOpenSshConfig, config_for_host_with_identity_path};
 
 #[derive(Debug, Error)]
 pub enum ActionError {
@@ -56,6 +56,20 @@ pub struct ResolvedLocalCommand {
     pub env: HashMap<String, String>,
 }
 
+#[derive(Debug)]
+pub struct ResolvedActionPrepare {
+    pub command: ResolvedLocalCommand,
+    pub temp_config: Option<TempOpenSshConfig>,
+}
+
+#[derive(Debug)]
+struct SshTemplateContext {
+    config_path: String,
+    alias: String,
+    rsh_command: String,
+    command: String,
+}
+
 impl ResolvedActionPlan {
     pub fn allocated_port(&self, name: &str) -> Option<u16> {
         self.allocated_ports.get(name).copied()
@@ -81,11 +95,23 @@ pub fn resolve_action_plan(
 
     let mut action_host = host.clone();
     action_host.forwards = forwards;
+    let force_config = action_requires_ssh_template(action, ActionPhase::Plan);
     let (mut ssh_command, temp_config) =
-        prepare_openssh_command(&action_host, local_config).map_err(ActionError::PrepareSsh)?;
+        prepare_action_openssh_command(&action_host, local_config, force_config)
+            .map_err(ActionError::PrepareSsh)?;
+    let ssh_template = temp_config
+        .as_ref()
+        .map(|config| ssh_template_context(config, &ssh_command));
     if let Some(remote_command) = &action.remote_command {
         ssh_command.args.push(
-            render_template(remote_command, &action_host, &allocated_ports, prepare_env)?.into(),
+            render_template(
+                remote_command,
+                &action_host,
+                &allocated_ports,
+                prepare_env,
+                ssh_template.as_ref(),
+            )?
+            .into(),
         );
     }
 
@@ -99,6 +125,7 @@ pub fn resolve_action_plan(
                 local_config,
                 &allocated_ports,
                 prepare_env,
+                ssh_template.as_ref(),
             )
         })
         .transpose()?;
@@ -112,6 +139,7 @@ pub fn resolve_action_plan(
                 local_config,
                 &allocated_ports,
                 prepare_env,
+                ssh_template.as_ref(),
             )
         })
         .transpose()?;
@@ -125,6 +153,7 @@ pub fn resolve_action_plan(
                 local_config,
                 &allocated_ports,
                 prepare_env,
+                ssh_template.as_ref(),
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -145,20 +174,130 @@ pub fn resolve_action_local_prepare(
     host: &ResolvedHost,
     action: &ActionDefinition,
     local_config: &LocalConfig,
-) -> Result<Option<ResolvedLocalCommand>, ActionError> {
+) -> Result<Option<ResolvedActionPrepare>, ActionError> {
+    let force_config = action_requires_ssh_template(action, ActionPhase::Prepare);
+    let (ssh_template, temp_config) = if force_config {
+        let (ssh_command, temp_config) = prepare_action_openssh_command(host, local_config, true)
+            .map_err(ActionError::PrepareSsh)?;
+        let temp_config = temp_config.expect("forced OpenSSH config must produce a temp config");
+        (
+            Some(ssh_template_context(&temp_config, &ssh_command)),
+            Some(temp_config),
+        )
+    } else {
+        (None, None)
+    };
     action
         .local_prepare
         .as_ref()
         .map(|command| {
-            resolve_local_command(
+            let command = resolve_local_command(
                 command,
                 host,
                 local_config,
                 &HashMap::new(),
                 &HashMap::new(),
-            )
+                ssh_template.as_ref(),
+            )?;
+            Ok(ResolvedActionPrepare {
+                command,
+                temp_config,
+            })
         })
         .transpose()
+}
+
+fn prepare_action_openssh_command(
+    host: &ResolvedHost,
+    local_config: &LocalConfig,
+    force_config: bool,
+) -> io::Result<(OpenSshCommand, Option<TempOpenSshConfig>)> {
+    if !force_config {
+        return prepare_openssh_command(host, local_config);
+    }
+
+    let identity_path = host
+        .identity_fingerprint
+        .as_deref()
+        .and_then(|fingerprint| local_config.identity_path(fingerprint));
+    let config = config_for_host_with_identity_path(host, identity_path);
+    let temp_config = TempOpenSshConfig::write(&config)?;
+    let command = temp_config.command();
+    Ok((command, Some(temp_config)))
+}
+
+fn ssh_template_context(
+    temp_config: &TempOpenSshConfig,
+    command: &OpenSshCommand,
+) -> SshTemplateContext {
+    let mut rsh_command = command.clone();
+    rsh_command.args.pop();
+    SshTemplateContext {
+        config_path: temp_config.path().display().to_string(),
+        alias: temp_config.alias().to_string(),
+        rsh_command: rsh_command.render_for_display(),
+        command: command.render_for_display(),
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ActionPhase {
+    Prepare,
+    Plan,
+}
+
+fn action_requires_ssh_template(action: &ActionDefinition, phase: ActionPhase) -> bool {
+    match phase {
+        ActionPhase::Prepare => action
+            .local_prepare
+            .as_ref()
+            .is_some_and(local_command_requires_ssh_template),
+        ActionPhase::Plan => {
+            action
+                .remote_command
+                .as_ref()
+                .is_some_and(|command| template_requires_ssh_template(command))
+                || action
+                    .local_prepare
+                    .as_ref()
+                    .is_some_and(local_command_requires_ssh_template)
+                || action
+                    .local_launch
+                    .as_ref()
+                    .is_some_and(local_command_requires_ssh_template)
+                || action
+                    .cleanup
+                    .iter()
+                    .any(local_command_requires_ssh_template)
+        }
+    }
+}
+
+fn local_command_requires_ssh_template(command: &ActionLocalCommand) -> bool {
+    command
+        .program
+        .as_ref()
+        .is_some_and(|program| template_requires_ssh_template(program))
+        || command
+            .args
+            .iter()
+            .any(|arg| template_requires_ssh_template(arg))
+        || command
+            .env
+            .values()
+            .any(|value| template_requires_ssh_template(value))
+}
+
+fn template_requires_ssh_template(template: &str) -> bool {
+    [
+        "{SSH_CONFIG}",
+        "{SSH_ALIAS}",
+        "{SSH_DEST}",
+        "{SSH_RSH}",
+        "{SSH_COMMAND}",
+    ]
+    .iter()
+    .any(|variable| template.contains(variable))
 }
 
 pub fn parse_prepare_env(output: &str) -> HashMap<String, String> {
@@ -264,6 +403,7 @@ fn resolve_local_command(
     local_config: &LocalConfig,
     allocated_ports: &HashMap<String, u16>,
     prepare_env: &HashMap<String, String>,
+    ssh_template: Option<&SshTemplateContext>,
 ) -> Result<ResolvedLocalCommand, ActionError> {
     let program = match (&command.program, &command.capability) {
         (Some(_), Some(_)) => return Err(ActionError::AmbiguousLocalProgram),
@@ -273,6 +413,7 @@ fn resolve_local_command(
             host,
             allocated_ports,
             prepare_env,
+            ssh_template,
         )?),
         (None, Some(capability)) => local_config
             .capability_path(capability)
@@ -282,7 +423,7 @@ fn resolve_local_command(
     let args = command
         .args
         .iter()
-        .map(|arg| render_template(arg, host, allocated_ports, prepare_env))
+        .map(|arg| render_template(arg, host, allocated_ports, prepare_env, ssh_template))
         .collect::<Result<Vec<_>, _>>()?;
     let env = command
         .env
@@ -290,7 +431,7 @@ fn resolve_local_command(
         .map(|(key, value)| {
             Ok((
                 key.clone(),
-                render_template(value, host, allocated_ports, prepare_env)?,
+                render_template(value, host, allocated_ports, prepare_env, ssh_template)?,
             ))
         })
         .collect::<Result<HashMap<_, _>, ActionError>>()?;
@@ -302,6 +443,7 @@ fn render_template(
     host: &ResolvedHost,
     allocated_ports: &HashMap<String, u16>,
     prepare_env: &HashMap<String, String>,
+    ssh_template: Option<&SshTemplateContext>,
 ) -> Result<String, ActionError> {
     let mut rendered = String::new();
     let mut rest = template;
@@ -318,6 +460,7 @@ fn render_template(
             host,
             allocated_ports,
             prepare_env,
+            ssh_template,
         )?);
         rest = &after_start[end + 1..];
     }
@@ -330,6 +473,7 @@ fn template_value(
     host: &ResolvedHost,
     allocated_ports: &HashMap<String, u16>,
     prepare_env: &HashMap<String, String>,
+    ssh_template: Option<&SshTemplateContext>,
 ) -> Result<String, ActionError> {
     if variable == "HOST" {
         return Ok(host.hostname.clone());
@@ -339,6 +483,26 @@ fn template_value(
     }
     if variable == "PORT" {
         return Ok(host.port.to_string());
+    }
+    if variable == "SSH_CONFIG" {
+        return ssh_template
+            .map(|context| context.config_path.clone())
+            .ok_or_else(|| ActionError::UnknownTemplateVariable(variable.to_string()));
+    }
+    if variable == "SSH_ALIAS" || variable == "SSH_DEST" {
+        return ssh_template
+            .map(|context| context.alias.clone())
+            .ok_or_else(|| ActionError::UnknownTemplateVariable(variable.to_string()));
+    }
+    if variable == "SSH_RSH" {
+        return ssh_template
+            .map(|context| context.rsh_command.clone())
+            .ok_or_else(|| ActionError::UnknownTemplateVariable(variable.to_string()));
+    }
+    if variable == "SSH_COMMAND" {
+        return ssh_template
+            .map(|context| context.command.clone())
+            .ok_or_else(|| ActionError::UnknownTemplateVariable(variable.to_string()));
     }
     if let Some(name) = variable.strip_prefix("LOCAL_PORT:") {
         return allocated_ports
@@ -505,9 +669,88 @@ mod tests {
             &LocalConfig::new(),
             &HashMap::new(),
             &HashMap::new(),
+            None,
         )
         .unwrap();
 
         assert_eq!(resolved.args, vec!["alice@pi.local:22"]);
+    }
+
+    #[test]
+    fn resolves_config_backed_transfer_templates_for_local_prepare() {
+        let mut local_config = LocalConfig::new();
+        local_config
+            .map_identity(
+                "SHA256:alice".to_string(),
+                "/home/alice/.ssh/id_ed25519".into(),
+                None,
+            )
+            .unwrap();
+        let mut host = host();
+        host.identity_fingerprint = Some("SHA256:alice".to_string());
+        let action = ActionDefinition {
+            id: Uuid::new_v4(),
+            name: "Send file".to_string(),
+            local_prepare: Some(ActionLocalCommand {
+                capability: None,
+                program: Some("/bin/send".to_string()),
+                args: vec![
+                    "{SSH_CONFIG}".to_string(),
+                    "{SSH_DEST}".to_string(),
+                    "{SSH_ALIAS}".to_string(),
+                    "{SSH_RSH}".to_string(),
+                    "{SSH_COMMAND}".to_string(),
+                ],
+                env: HashMap::new(),
+            }),
+            forwards: Vec::new(),
+            remote_command: Some("true".to_string()),
+            local_launch: None,
+            cleanup: Vec::new(),
+        };
+
+        let prepare = resolve_action_local_prepare(&host, &action, &local_config)
+            .unwrap()
+            .unwrap();
+
+        assert!(prepare.temp_config.as_ref().unwrap().path().exists());
+        assert_eq!(prepare.command.args[1], prepare.command.args[2]);
+        assert!(prepare.command.args[0].contains("stassh-"));
+        assert!(prepare.command.args[3].starts_with("ssh -F "));
+        assert!(!prepare.command.args[3].ends_with(&prepare.command.args[1]));
+        assert!(prepare.command.args[4].starts_with("ssh -F "));
+        assert!(prepare.command.args[4].contains(&prepare.command.args[1]));
+    }
+
+    #[test]
+    fn ssh_templates_force_config_backed_action_plan() {
+        let action = ActionDefinition {
+            id: Uuid::new_v4(),
+            name: "Rsync".to_string(),
+            local_prepare: None,
+            forwards: Vec::new(),
+            remote_command: Some("true".to_string()),
+            local_launch: Some(ActionLocalCommand {
+                capability: None,
+                program: Some("/usr/bin/rsync".to_string()),
+                args: vec![
+                    "-e".to_string(),
+                    "{SSH_RSH}".to_string(),
+                    "/tmp/file".to_string(),
+                    "{SSH_DEST}:~/".to_string(),
+                ],
+                env: HashMap::new(),
+            }),
+            cleanup: Vec::new(),
+        };
+
+        let plan =
+            resolve_action_plan(&host(), &action, &LocalConfig::new(), &HashMap::new()).unwrap();
+
+        assert!(plan.temp_config.as_ref().unwrap().path().exists());
+        let local_launch = plan.local_launch.unwrap();
+        assert!(local_launch.args[1].starts_with("ssh -F "));
+        assert!(local_launch.args[3].starts_with("stassh-"));
+        assert!(plan.ssh_command.render_for_display().starts_with("ssh -F "));
     }
 }

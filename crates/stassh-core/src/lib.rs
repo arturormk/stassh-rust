@@ -11,8 +11,8 @@ pub mod simulation;
 pub mod storage;
 
 pub use action::{
-    ActionError, ResolvedActionPlan, ResolvedLocalCommand, parse_prepare_env,
-    resolve_action_local_prepare, resolve_action_plan,
+    ActionError, ResolvedActionPlan, ResolvedActionPrepare, ResolvedLocalCommand,
+    parse_prepare_env, resolve_action_local_prepare, resolve_action_plan,
 };
 pub use export::export_openssh_config;
 pub use frontend::{
