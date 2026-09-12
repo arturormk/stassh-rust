@@ -221,6 +221,17 @@ test("inspector follows the last selected host across tree items and terminal pa
   await expect(page.getByRole("heading", { name: "Staging" })).toBeVisible();
 });
 
+test("host inspector separates workflow and maintenance actions", async ({ page }) => {
+  await page.getByTestId("folder-row-Production").locator("button").click();
+  await page.getByTestId("host-row-web-prod-01").click();
+
+  const workflowActions = page.locator(".hostWorkflowActions");
+  await expect(workflowActions.getByRole("button")).toHaveText(["Connect", "Actions", "Secrets"]);
+
+  const secondaryActions = page.locator(".secondaryHostActions");
+  await expect(secondaryActions.getByRole("button")).toHaveText(["Edit", "Copy", "Jumps", "Forwards", "Delete"]);
+});
+
 test("closes a selected exited terminal when Enter is pressed", async ({ page }) => {
   await openSimulationTerminals(page, ["web-prod-01", "db-prod-01"]);
   await page.getByTestId("tab-web-prod-01").click();

@@ -567,6 +567,8 @@ Current GUI capabilities:
 - inspect selected hosts, folders, active terminal sessions, and layout state in
   a contextual right-side Inspector, including a standalone copy/paste OpenSSH
   command preview and diagnostics
+- use the host Inspector's primary workflow block for Connect, Actions, and
+  Secrets, with host maintenance controls grouped below the details
 - create, edit, copy, delete, and move hosts
 - create, rename, move, and delete folders where allowed
 - assign or clear a host identity from local mappings

@@ -170,6 +170,11 @@ The GUI should make host details richer and easier to scan:
 * standalone copy/paste OpenSSH command preview,
 * and diagnostics/warnings.
 
+The host Inspector should visually separate primary workflows from maintenance:
+Connect, Actions, and Secrets belong in the prominent top action block, while
+editing, copying, jump/forward configuration, and deletion belong below the
+details.
+
 Diagnostics should be visible as a dedicated tab, inspector section, or command
 palette action. It should identify missing local identity mappings, missing
 capability mappings, invalid references, duplicate host concerns, and generated

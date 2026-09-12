@@ -1974,30 +1974,15 @@ function HostInspectorDetails(props: {
   return (
     <div className="inspectorDetails">
       <InspectorHeader title={host.displayName} subtitle={subtitle} onCollapse={props.onCollapse} />
-      <div className="inspectorActions">
-        <button onClick={() => props.onConnect(host)}>
+      <div className="hostWorkflowActions">
+        <button className="connectPrimary" onClick={() => props.onConnect(host)}>
           <TerminalSquare size={16} /> Connect
-        </button>
-        <button onClick={() => props.onEdit(host)}>
-          <Pencil size={16} /> Edit
-        </button>
-        <button onClick={() => props.onCopy(host)}>
-          <Copy size={16} /> Copy
-        </button>
-        <button onClick={() => props.onSecrets(host)} disabled={!host.secrets}>
-          <KeyRound size={16} /> Secrets
-        </button>
-        <button onClick={() => props.onJumps(host)}>
-          <ChevronRight size={16} /> Jumps
-        </button>
-        <button onClick={() => props.onForwards(host)}>
-          <ArrowRightLeft size={16} /> Forwards
         </button>
         <button onClick={() => props.onActions(host)} disabled={!host.actionCount}>
           <ListChecks size={16} /> Actions
         </button>
-        <button className="danger" onClick={() => props.onDelete(host)}>
-          <Trash2 size={16} /> Delete
+        <button onClick={() => props.onSecrets(host)} disabled={!host.secrets}>
+          <KeyRound size={16} /> Secrets
         </button>
       </div>
       <DetailList>
@@ -2032,6 +2017,23 @@ function HostInspectorDetails(props: {
         <h3>Diagnostics</h3>
         <Diagnostics diagnostics={details?.diagnostics ?? []} onSelectHost={props.onSelectHost} />
       </section>
+      <div className="inspectorActions secondaryHostActions">
+        <button onClick={() => props.onEdit(host)}>
+          <Pencil size={16} /> Edit
+        </button>
+        <button onClick={() => props.onCopy(host)}>
+          <Copy size={16} /> Copy
+        </button>
+        <button onClick={() => props.onJumps(host)}>
+          <ChevronRight size={16} /> Jumps
+        </button>
+        <button onClick={() => props.onForwards(host)}>
+          <ArrowRightLeft size={16} /> Forwards
+        </button>
+        <button className="danger" onClick={() => props.onDelete(host)}>
+          <Trash2 size={16} /> Delete
+        </button>
+      </div>
     </div>
   );
 }
