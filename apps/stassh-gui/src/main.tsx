@@ -255,6 +255,15 @@ type FolderPingProgress = {
   result: HostPingResult;
 };
 
+type FolderPingState = {
+  folderId: Id;
+  runId: Id;
+  loading: boolean;
+  total: number;
+  results: HostPingResult[];
+  startedAt: string;
+};
+
 type LayoutMode = "grid" | "main";
 type InspectorSource = "details" | "terminal" | "layout";
 
@@ -362,13 +371,7 @@ function App() {
   const [forwardsDraft, setForwardsDraft] = useState<ForwardsDraft | null>(null);
   const [forwardsSaving, setForwardsSaving] = useState(false);
   const [actionsPane, setActionsPane] = useState<ActionsPane | null>(null);
-  const [folderPing, setFolderPing] = useState<{
-    folderId: Id;
-    runId: Id;
-    loading: boolean;
-    total: number;
-    results: HostPingResult[];
-  } | null>(null);
+  const [folderPing, setFolderPing] = useState<FolderPingState | null>(null);
   const [status, setStatus] = useState("Loading workspace");
   const [error, setError] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(defaultSidebarWidth);
@@ -685,18 +688,21 @@ function App() {
     const folderIds = workspace ? descendantFolderIds(workspace.folders, folder.id) : new Set<Id>([folder.id]);
     const total = workspace ? workspace.hosts.filter((host) => folderIds.has(host.folderId)).length : 0;
     const runId = crypto.randomUUID();
-    setFolderPing({ folderId: folder.id, runId, loading: true, total, results: [] });
+    const startedAt = new Date().toISOString();
+    setFolderPing({ folderId: folder.id, runId, loading: true, total, results: [], startedAt });
     setStatus(`Pinging ${folder.path}`);
     try {
       const results = await invoke<HostPingResult[]>("ping_folder_hosts", { folderId: folder.id, runId });
       setFolderPing((current) =>
-        current?.runId === runId ? { folderId: folder.id, runId, loading: false, total: results.length, results } : current,
+        current?.runId === runId
+          ? { folderId: folder.id, runId, loading: false, total: results.length, results, startedAt }
+          : current,
       );
       const succeeded = results.filter((result) => result.success).length;
       setStatus(`Pinged ${results.length} hosts: ${succeeded} succeeded, ${results.length - succeeded} failed`);
     } catch (err) {
       setFolderPing((current) =>
-        current?.runId === runId ? { folderId: folder.id, runId, loading: false, total, results: [] } : current,
+        current?.runId === runId ? { folderId: folder.id, runId, loading: false, total, results: [], startedAt } : current,
       );
       setStatus(String(err));
     }
@@ -1782,7 +1788,7 @@ function SearchResults(props: {
 function DetailsPane(props: {
   workspace: WorkspaceSnapshot;
   selection: Selection | null;
-  ping: { folderId: Id; runId: Id; loading: boolean; total: number; results: HostPingResult[] } | null;
+  ping: FolderPingState | null;
   onPingFolder: (folder: FolderView) => void;
   onSelectHost: (hostId: Id) => void;
 }) {
@@ -1833,8 +1839,11 @@ function DetailsPane(props: {
             </button>
           </div>
           {ping && (
-            <div className="folderPingSummary" data-testid="folder-ping-summary">
-              {checked}/{total} checked - {succeeded} succeeded - {failed} failed
+            <div className="folderPingMeta">
+              <div className="folderPingSummary" data-testid="folder-ping-summary">
+                {checked}/{total} checked - {succeeded} succeeded - {failed} failed
+              </div>
+              <div data-testid="folder-ping-started">Last Ping All: {formatDateTimeMinute(ping.startedAt)}</div>
             </div>
           )}
           {ping?.results.length ? (
@@ -3537,6 +3546,18 @@ function validPort(port: number) {
 
 function plural(count: number) {
   return count === 1 ? "" : "s";
+}
+
+function formatDateTimeMinute(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "unknown";
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function portFromInput(value: string) {

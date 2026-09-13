@@ -625,7 +625,9 @@ code {
 }
 
 .homeDetails {
+  height: 100%;
   max-width: 760px;
+  overflow: auto;
 }
 
 .folderPing {
@@ -653,12 +655,15 @@ code {
 }
 
 .folderPingHeader small,
+.folderPingMeta,
 .folderPingSummary {
   color: #94a0ad;
   font-size: 12px;
 }
 
-.folderPingSummary {
+.folderPingMeta {
+  display: grid;
+  gap: 3px;
   margin-top: 10px;
 }
 

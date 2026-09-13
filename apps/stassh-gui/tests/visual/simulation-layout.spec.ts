@@ -256,6 +256,7 @@ test("pings selected folder hosts from the empty workspace", async ({ page }) =>
   await page.getByTestId("folder-ping-button").click();
 
   await expect(page.getByTestId("folder-ping-summary")).toHaveText("0/3 checked - 0 succeeded - 0 failed");
+  await expect(page.getByTestId("folder-ping-started")).toContainText("Last Ping All:");
   await expect(page.getByTestId("folder-ping-summary")).toHaveText("3/3 checked - 3 succeeded - 0 failed");
   await expect(page.getByTestId("folder-ping-results")).toContainText("web-prod-01");
   await expect(page.getByTestId("folder-ping-results")).toContainText("db-prod-01");

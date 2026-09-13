@@ -574,7 +574,8 @@ Current GUI capabilities:
 - open every direct host in a selected folder from the folder Inspector
 - probe every host in a selected folder and its subfolders from the empty
   workspace view by attempting noninteractive SSH connections with live
-  success/failure counts
+  success/failure counts, remembered per-folder results, and a last-run
+  timestamp
 - assign or clear a host identity from local mappings
 - inspect linked secrets sets and explicitly reveal encrypted fields with the
   secrets master password
