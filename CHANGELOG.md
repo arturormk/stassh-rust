@@ -25,7 +25,8 @@ All notable changes to this project will be documented in this file.
   each participating terminal pane header.
 - GUI layout tabs now include a per-layout `Min 72` toggle that keeps narrow
   terminal panes at least 72 columns wide and adds horizontal scrolling instead
-  of forcing heavy line wrapping.
+  of forcing heavy line wrapping. Main layout mode now enforces that minimum
+  automatically without changing the saved Grid-mode toggle state.
 - GUI folder Inspector details now include a primary Open All action for opening
   every direct host in the selected folder, with Rename and Delete grouped
   beneath it as secondary maintenance actions.

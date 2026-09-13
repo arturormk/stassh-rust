@@ -2834,6 +2834,8 @@ function TerminalStage(props: {
 
   const gridStyle = layout ? layoutStageStyle(layout) : undefined;
   const layoutSessions = terminalTabs.filter((tab) => layout?.sessionIds.includes(tab.sessionId));
+  const minColumnsForced = layout?.mode === "main";
+  const minColumnsActive = Boolean(layout && (minColumnsForced || layout.minTerminalColumns));
 
   return (
     <div
@@ -2861,10 +2863,15 @@ function TerminalStage(props: {
           <span className="layoutPaneCount">{layout.sessionIds.length} panes</span>
           <div className="layoutToggles">
             <button
-              className={`layoutToggle ${layout.minTerminalColumns ? "active" : ""}`}
+              className={`layoutToggle ${minColumnsActive ? "active" : ""}`}
               data-testid="layout-min-columns-toggle"
-              title="Keep layout terminals at least 72 columns wide"
-              aria-pressed={layout.minTerminalColumns}
+              title={
+                minColumnsForced
+                  ? "Main layouts always keep terminals at least 72 columns wide"
+                  : "Keep layout terminals at least 72 columns wide"
+              }
+              aria-pressed={minColumnsActive}
+              disabled={minColumnsForced}
               onClick={() => props.onUpdateLayout(layout.id, { minTerminalColumns: !layout.minTerminalColumns })}
             >
               Min 72
@@ -2900,7 +2907,7 @@ function TerminalStage(props: {
               fullscreen={fullscreen}
               style={paneStyle}
               broadcastActive={Boolean(layout?.broadcastInput && layout.sessionIds.includes(tab.sessionId))}
-              minColumnsEnabled={Boolean(layout?.minTerminalColumns && layout.sessionIds.includes(tab.sessionId))}
+              minColumnsEnabled={Boolean(minColumnsActive && layout?.sessionIds.includes(tab.sessionId))}
               showPaneControls={Boolean(layout && visible)}
               showFullscreenButton={showFullscreenButton}
               onInput={(sessionId, data) => {

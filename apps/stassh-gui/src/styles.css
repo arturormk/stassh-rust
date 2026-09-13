@@ -472,6 +472,11 @@ code {
   background: #ffe08f;
 }
 
+.layoutToggle.active:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
 .terminalStage {
   position: relative;
   display: grid;

@@ -144,6 +144,48 @@ test("keeps layout terminals at least 72 columns wide when enabled", async ({ pa
     .toBe(true);
 });
 
+test("forces 72-column layout terminals in main mode without changing the grid toggle", async ({ page }) => {
+  await openSimulationTerminals(page, ["web-prod-01", "db-prod-01", "cache-prod-01"]);
+  await page.getByTestId("create-layout-tab").click();
+  await expect(page.getByTestId("layout-min-columns-toggle")).toHaveAttribute("aria-pressed", "false");
+
+  await page.addStyleTag({
+    content: `
+      .terminalStage { max-width: 430px; }
+    `,
+  });
+  const sessionIds = await Promise.all(
+    ["web-prod-01", "db-prod-01", "cache-prod-01"].map((title) => terminalSessionId(page, title)),
+  );
+  await page.evaluate(() => {
+    window.__STASSH_TEST_API__?.resizeCalls?.splice(0);
+  });
+
+  await page.getByTestId("layout-main-mode").click();
+  await expect(page.getByTestId("layout-min-columns-toggle")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("layout-min-columns-toggle")).toBeDisabled();
+  await expect
+    .poll(async () =>
+      page.evaluate((sessionIds) => {
+        const calls = window.__STASSH_TEST_API__?.resizeCalls ?? [];
+        return sessionIds.every((sessionId) => {
+          const lastCall = calls.filter((call) => call.sessionId === sessionId).at(-1);
+          return lastCall ? lastCall.cols >= 72 : false;
+        });
+      }, sessionIds),
+    )
+    .toBe(true);
+
+  await page.getByTestId("layout-grid-mode").click();
+  await expect(page.getByTestId("layout-min-columns-toggle")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByTestId("layout-min-columns-toggle")).toBeEnabled();
+
+  await page.getByTestId("layout-min-columns-toggle").click();
+  await page.getByTestId("layout-main-mode").click();
+  await page.getByTestId("layout-grid-mode").click();
+  await expect(page.getByTestId("layout-min-columns-toggle")).toHaveAttribute("aria-pressed", "true");
+});
+
 test("captures main-pane mode with broadcast input enabled", async ({ page }) => {
   await openSimulationTerminals(page, ["web-prod-01", "db-prod-01", "cache-prod-01"]);
   await page.getByTestId("create-layout-tab").click();
