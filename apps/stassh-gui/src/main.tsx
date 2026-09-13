@@ -1466,6 +1466,11 @@ function App() {
             onCollapse={() => setInspectorCollapsedAndResize(true)}
             onExpand={() => setInspectorCollapsedAndResize(false)}
             onConnect={(host) => openTerminal(host)}
+            onOpenFolderHosts={(hosts) => {
+              for (const host of hosts) {
+                void openTerminal(host);
+              }
+            }}
             onEditHost={(host) => startHostEditor("host", host)}
             onEditFolder={(folder) => startFolderEditor("folder", folder)}
             onCopyHost={(host) => applySnapshot("copy_host", { hostId: host.id }, "Host copied")}
@@ -1747,6 +1752,7 @@ function Inspector(props: {
   onCollapse: () => void;
   onExpand: () => void;
   onConnect: (host: HostView) => void;
+  onOpenFolderHosts: (hosts: HostView[]) => void;
   onEditHost: (host: HostView) => void;
   onEditFolder: (folder: FolderView) => void;
   onCopyHost: (host: HostView) => void;
@@ -1920,11 +1926,14 @@ function Inspector(props: {
   }
 
   if (props.target?.type === "folder") {
+    const folder = props.target.folder;
     return (
       <FolderInspectorDetails
-        folder={props.target.folder}
+        folder={folder}
+        hosts={props.workspace.hosts.filter((host) => host.folderId === folder.id)}
         diagnostics={props.workspace.diagnostics}
         onCollapse={props.onCollapse}
+        onOpenAll={props.onOpenFolderHosts}
         onEdit={props.onEditFolder}
         onDelete={props.onDeleteFolder}
         onSelectHost={props.onSelectHost}
@@ -2476,8 +2485,10 @@ function HostSecretsPane(props: {
 
 function FolderInspectorDetails(props: {
   folder: FolderView;
+  hosts: HostView[];
   diagnostics: DiagnosticView[];
   onCollapse: () => void;
+  onOpenAll: (hosts: HostView[]) => void;
   onEdit: (folder: FolderView) => void;
   onDelete: (folder: FolderView) => void;
   onSelectHost: (hostId: Id) => void;
@@ -2485,14 +2496,6 @@ function FolderInspectorDetails(props: {
   return (
     <div className="inspectorDetails">
       <InspectorHeader title={props.folder.name} subtitle="Selected folder" onCollapse={props.onCollapse} />
-      <div className="inspectorActions">
-        <button onClick={() => props.onEdit(props.folder)}>
-          <Pencil size={16} /> Rename
-        </button>
-        <button className="danger" onClick={() => props.onDelete(props.folder)} disabled={!props.folder.parentId}>
-          <Trash2 size={16} /> Delete
-        </button>
-      </div>
       <DetailList>
         <DetailRow label="Path" value={props.folder.path} />
         <DetailRow label="Direct Hosts" value={String(props.folder.hostCount)} />
@@ -2501,6 +2504,17 @@ function FolderInspectorDetails(props: {
         <h3>Diagnostics</h3>
         <Diagnostics diagnostics={props.diagnostics} onSelectHost={props.onSelectHost} />
       </section>
+      <div className="inspectorActions secondaryFolderActions">
+        <button onClick={() => props.onOpenAll(props.hosts)} disabled={!props.hosts.length}>
+          <TerminalSquare size={16} /> Open All
+        </button>
+        <button onClick={() => props.onEdit(props.folder)}>
+          <Pencil size={16} /> Rename
+        </button>
+        <button className="danger" onClick={() => props.onDelete(props.folder)} disabled={!props.folder.parentId}>
+          <Trash2 size={16} /> Delete
+        </button>
+      </div>
     </div>
   );
 }

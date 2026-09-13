@@ -234,6 +234,21 @@ test("host inspector separates workflow and maintenance actions", async ({ page 
 
   const secondaryActions = page.locator(".secondaryHostActions");
   await expect(secondaryActions.getByRole("button")).toHaveText(["Edit", "Copy", "Jumps", "Forwards", "Delete"]);
+
+  await page.getByTestId("folder-row-Production").click();
+  const folderActions = page.locator(".secondaryFolderActions");
+  await expect(folderActions.getByRole("button")).toHaveText(["Open All", "Rename", "Delete"]);
+});
+
+test("opens direct folder hosts from the folder inspector", async ({ page }) => {
+  await page.getByTestId("folder-row-Production").click();
+  await page.locator(".secondaryFolderActions").getByRole("button", { name: "Open All" }).click();
+
+  await expect(page.getByTestId("tab-web-prod-01")).toBeVisible();
+  await expect(page.getByTestId("tab-db-prod-01")).toBeVisible();
+  await expect(page.getByTestId("tab-cache-prod-01")).toBeVisible();
+  await expect(page.getByTestId("tab-bastion-01")).toHaveCount(0);
+  await expect(page.getByTestId("tab-metrics-01")).toHaveCount(0);
 });
 
 test("closes a selected exited terminal when Enter is pressed", async ({ page }) => {

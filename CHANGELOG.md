@@ -20,6 +20,8 @@ All notable changes to this project will be documented in this file.
   and `Ctrl+Shift+V` to paste from the clipboard.
 - GUI Broadcast layouts now apply the exited-pane `Enter` close action to every
   exited pane in that layout.
+- GUI folder Inspector details now include an Open All action for opening every
+  direct host in the selected folder.
 - GUI Main layout mode now uses pane selection to promote the main terminal and
   only shows the full-screen control on the current main pane.
 - The GUI Inspector now follows the last selected host across tree selections,

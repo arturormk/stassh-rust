@@ -571,6 +571,7 @@ Current GUI capabilities:
   Secrets, with host maintenance controls grouped below the details
 - create, edit, copy, delete, and move hosts
 - create, rename, move, and delete folders where allowed
+- open every direct host in a selected folder from the folder Inspector
 - assign or clear a host identity from local mappings
 - inspect linked secrets sets and explicitly reveal encrypted fields with the
   secrets master password
