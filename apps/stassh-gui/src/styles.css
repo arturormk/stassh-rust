@@ -498,6 +498,7 @@ code {
 }
 
 .terminalPanel {
+  container-type: inline-size;
   display: none;
   min-width: 0;
   min-height: 0;
@@ -1247,16 +1248,28 @@ code {
 }
 
 .terminalHostTitle {
-  flex: 0 1 auto;
+  display: inline-flex;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   color: #dce2ea;
+  white-space: nowrap;
+}
+
+.terminalHostPrefix {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.terminalHostSuffix {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .terminalNotes {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 24px;
   overflow: hidden;
   color: #697481;
@@ -1264,6 +1277,12 @@ code {
   -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 28px), transparent);
   text-overflow: clip;
   white-space: nowrap;
+}
+
+@container (max-width: 360px) {
+  .layoutMode .terminalNotes {
+    display: none;
+  }
 }
 
 .terminalStatus small {

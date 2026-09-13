@@ -13,12 +13,18 @@ const ids = {
   db: "00000000-0000-0000-0000-000000000013",
   cache: "00000000-0000-0000-0000-000000000014",
   metrics: "00000000-0000-0000-0000-000000000016",
+  cclarios01: "00000000-0000-0000-0000-000000000021",
+  cclarios02: "00000000-0000-0000-0000-000000000022",
+  cclarios03: "00000000-0000-0000-0000-000000000023",
+  cclarios04: "00000000-0000-0000-0000-000000000024",
+  cclarios05: "00000000-0000-0000-0000-000000000025",
+  cclarios06: "00000000-0000-0000-0000-000000000026",
 };
 
 const folders = [
-  { id: ids.root, parentId: null, name: "Root", path: "Root", hostCount: 6 },
+  { id: ids.root, parentId: null, name: "Root", path: "Root", hostCount: 12 },
   { id: ids.edge, parentId: ids.root, name: "Edge", path: "Root / Edge", hostCount: 1 },
-  { id: ids.prod, parentId: ids.root, name: "Production", path: "Root / Production", hostCount: 3 },
+  { id: ids.prod, parentId: ids.root, name: "Production", path: "Root / Production", hostCount: 9 },
   { id: ids.staging, parentId: ids.root, name: "Staging", path: "Root / Staging", hostCount: 1 },
   { id: ids.shared, parentId: ids.root, name: "Shared Services", path: "Root / Shared Services", hostCount: 1 },
 ];
@@ -40,6 +46,30 @@ const hosts = [
   host(ids.cache, ids.prod, "Root / Production / cache-prod-01", "cache-prod-01", "cache01.prod.corp.example", "ops", [
     "prod",
     "cache",
+  ]),
+  host(ids.cclarios01, ids.prod, "Root / Production / cclarios01", "cclarios01", "cclarios01.prod.corp.example", "ops", [
+    "prod",
+    "cluster",
+  ]),
+  host(ids.cclarios02, ids.prod, "Root / Production / cclarios02", "cclarios02", "cclarios02.prod.corp.example", "ops", [
+    "prod",
+    "cluster",
+  ]),
+  host(ids.cclarios03, ids.prod, "Root / Production / cclarios03", "cclarios03", "cclarios03.prod.corp.example", "ops", [
+    "prod",
+    "cluster",
+  ]),
+  host(ids.cclarios04, ids.prod, "Root / Production / cclarios04", "cclarios04", "cclarios04.prod.corp.example", "ops", [
+    "prod",
+    "cluster",
+  ]),
+  host(ids.cclarios05, ids.prod, "Root / Production / cclarios05", "cclarios05", "cclarios05.prod.corp.example", "ops", [
+    "prod",
+    "cluster",
+  ]),
+  host(ids.cclarios06, ids.prod, "Root / Production / cclarios06", "cclarios06", "cclarios06.prod.corp.example", "ops", [
+    "prod",
+    "cluster",
   ]),
   host(ids.metrics, ids.shared, "Root / Shared Services / metrics-01", "metrics-01", "metrics.shared.corp.example", "observer", [
     "shared",
@@ -142,6 +172,24 @@ test("keeps layout terminals at least 72 columns wide when enabled", async ({ pa
   await expect
     .poll(async () => scroller.evaluate((element) => element.scrollWidth > element.clientWidth))
     .toBe(true);
+});
+
+test("keeps patterned host suffixes visible in dense layout headers", async ({ page }) => {
+  const names = ["cclarios01", "cclarios02", "cclarios03", "cclarios04", "cclarios05", "cclarios06"];
+  await openSimulationTerminals(page, names);
+  await page.getByTestId("create-layout-tab").click();
+  await page.addStyleTag({
+    content: `
+      .terminalStage { max-width: 640px; }
+    `,
+  });
+
+  for (const name of names) {
+    const pane = page.getByTestId(`terminal-pane-${name}`);
+    await expect(pane.locator(".terminalHostTitle")).toHaveAttribute("title", name);
+    await expect(pane.locator(".terminalHostSuffix")).toHaveText(name.slice(-2));
+    await expect(pane.locator(".terminalNotes")).toHaveCSS("display", "none");
+  }
 });
 
 test("forces 72-column layout terminals in main mode without changing the grid toggle", async ({ page }) => {

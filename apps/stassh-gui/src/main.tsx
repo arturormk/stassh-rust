@@ -266,6 +266,12 @@ type FolderPingState = {
 };
 
 type LayoutMode = "grid" | "main";
+
+type PaneTitleDisplay = {
+  fullTitle: string;
+  prefix: string;
+  suffix: string | null;
+};
 type InspectorSource = "details" | "terminal" | "layout";
 
 type InspectorTarget =
@@ -2836,6 +2842,7 @@ function TerminalStage(props: {
   const layoutSessions = terminalTabs.filter((tab) => layout?.sessionIds.includes(tab.sessionId));
   const minColumnsForced = layout?.mode === "main";
   const minColumnsActive = Boolean(layout && (minColumnsForced || layout.minTerminalColumns));
+  const paneTitleBySessionId = layout ? paneTitleDisplays(layoutSessions) : new Map<Id, PaneTitleDisplay>();
 
   return (
     <div
@@ -2898,10 +2905,12 @@ function TerminalStage(props: {
           const showFullscreenButton = !layout || layout.mode !== "main" || isMainLayoutPane || fullscreen;
           const paneStyle = layout ? layoutPaneStyle(layout, tab.sessionId) : undefined;
           const notes = hostsById.get(tab.hostId)?.notes ?? null;
+          const titleDisplay = paneTitleBySessionId.get(tab.sessionId) ?? fullPaneTitleDisplay(tab.title);
           return (
             <TerminalPane
               key={tab.sessionId}
               tab={tab}
+              titleDisplay={titleDisplay}
               notes={notes}
               visible={visible}
               focused={focused}
@@ -2960,6 +2969,7 @@ function TerminalStage(props: {
 
 function TerminalPane({
   tab,
+  titleDisplay,
   notes,
   visible,
   focused,
@@ -2978,6 +2988,7 @@ function TerminalPane({
   onClose,
 }: {
   tab: Extract<Tab, { type: "terminal" }>;
+  titleDisplay: PaneTitleDisplay;
   notes: string | null;
   visible: boolean;
   focused: boolean;
@@ -3247,7 +3258,10 @@ function TerminalPane({
     >
       <div className={`terminalStatus ${broadcastActive ? "broadcastActive" : ""}`}>
         <div className="terminalTitle">
-          <span className="terminalHostTitle">{tab.title}</span>
+          <span className="terminalHostTitle" title={titleDisplay.fullTitle}>
+            <span className="terminalHostPrefix">{titleDisplay.prefix}</span>
+            {titleDisplay.suffix && <span className="terminalHostSuffix">{titleDisplay.suffix}</span>}
+          </span>
           {displayNotes && <span className="terminalNotes">{displayNotes}</span>}
         </div>
         {focused &&
@@ -3690,6 +3704,43 @@ function layoutPaneStyle(layout: Extract<Tab, { type: "layout" }>, sessionId: Id
     gridColumn: String(3 + (secondaryIndex % columns)),
     gridRow: String(Math.floor(secondaryIndex / columns) + 1),
   };
+}
+
+function paneTitleDisplays(tabs: Extract<Tab, { type: "terminal" }>[]) {
+  const displays = new Map<Id, PaneTitleDisplay>();
+  const titles = tabs.map((tab) => tab.title);
+  for (const tab of tabs) {
+    displays.set(tab.sessionId, compactPaneTitleDisplay(tab.title, titles));
+  }
+  return displays;
+}
+
+function fullPaneTitleDisplay(fullTitle: string): PaneTitleDisplay {
+  return { fullTitle, prefix: fullTitle, suffix: null };
+}
+
+function compactPaneTitleDisplay(fullTitle: string, siblingTitles: string[]): PaneTitleDisplay {
+  const title = fullTitle.trim();
+  if (!title || siblingTitles.length < 2) return fullPaneTitleDisplay(fullTitle);
+
+  const minSuffixLength = trailingDigits(title)?.length ?? 1;
+  for (let suffixLength = minSuffixLength; suffixLength < title.length; suffixLength += 1) {
+    const suffix = title.slice(-suffixLength);
+    const unique = siblingTitles.every((candidate) => candidate === fullTitle || !candidate.endsWith(suffix));
+    if (unique) {
+      return {
+        fullTitle,
+        prefix: title.slice(0, -suffixLength),
+        suffix,
+      };
+    }
+  }
+
+  return fullPaneTitleDisplay(fullTitle);
+}
+
+function trailingDigits(value: string) {
+  return value.match(/\d+$/)?.[0] ?? null;
 }
 
 function blank(value: string) {
