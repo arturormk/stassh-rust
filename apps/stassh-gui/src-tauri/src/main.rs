@@ -28,6 +28,7 @@ fn main() {
     tauri::Builder::default()
         .manage(AppState::new(simulation))
         .invoke_handler(tauri::generate_handler![
+            app_version,
             load_workspace,
             reload_workspace,
             search_hosts,
@@ -59,6 +60,11 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("failed to run stassh-gui");
+}
+
+#[tauri::command]
+fn app_version() -> &'static str {
+    env!("STASSH_VERSION")
 }
 
 struct AppState {

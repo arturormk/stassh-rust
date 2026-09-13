@@ -380,6 +380,7 @@ function App() {
   const [forwardsSaving, setForwardsSaving] = useState(false);
   const [actionsPane, setActionsPane] = useState<ActionsPane | null>(null);
   const [folderPing, setFolderPing] = useState<FolderPingState | null>(null);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
   const [status, setStatus] = useState("Loading workspace");
   const [error, setError] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(defaultSidebarWidth);
@@ -389,6 +390,12 @@ function App() {
 
   useEffect(() => {
     loadWorkspace();
+  }, []);
+
+  useEffect(() => {
+    invoke<string>("app_version")
+      .then(setAppVersion)
+      .catch(() => setAppVersion("unknown"));
   }, []);
 
   useEffect(() => {
@@ -1607,6 +1614,9 @@ function App() {
       <footer className="statusbar">
         <span>{status}</span>
         <span>{diagnosticSummary}</span>
+        <span className="statusbarVersion" title={`stassh version ${appVersion ?? "loading"}`}>
+          stassh {appVersion ?? "loading"}
+        </span>
         <span>{workspace.vaultPath}</span>
       </footer>
     </div>

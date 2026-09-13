@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - GUI embedded SSH terminals now launch with `TERM=xterm-256color`, matching the
   xterm.js frontend so OpenSSH can forward a useful terminal type to remote
   sessions.
+- The GUI status bar now shows the running stassh application version.
 - The GUI quickstart script now asks which Linux bundle combination to build and
   can offer to install successfully built `.deb` or `.rpm` packages.
 - GUI quickstart package installation now passes absolute artifact paths to

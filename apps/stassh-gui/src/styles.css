@@ -1437,6 +1437,11 @@ code {
   white-space: nowrap;
 }
 
+.statusbarVersion {
+  color: #bac5d1;
+  font-weight: 700;
+}
+
 .empty,
 .loading,
 .errorShell {

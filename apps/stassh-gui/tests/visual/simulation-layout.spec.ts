@@ -121,6 +121,7 @@ test.beforeEach(async ({ page }) => {
     `,
   });
   await expect(page.getByTestId("app-shell")).toBeVisible();
+  await expect(page.locator(".statusbarVersion")).toHaveText("stassh 1.1.42");
 });
 
 test("captures the simulated terminal grid layout", async ({ page }) => {
@@ -511,6 +512,7 @@ async function installTauriMock(page: Page) {
       emit,
       resizeCalls,
       invoke: async (command: string, args?: Record<string, unknown>) => {
+        if (command === "app_version") return "1.1.42";
         if (command === "load_workspace" || command === "reload_workspace") return snapshot;
         if (command === "host_details") {
           const host = findHost(String(args?.hostId));
