@@ -230,6 +230,7 @@ type Tab =
       mode: LayoutMode;
       mainRatio: number;
       broadcastInput: boolean;
+      minTerminalColumns: boolean;
     };
 
 type Selection = { type: "host"; id: Id } | { type: "folder"; id: Id };
@@ -296,6 +297,7 @@ const minSidebarWidth = 240;
 const maxSidebarWidth = 560;
 const minMainRatio = 0.35;
 const maxMainRatio = 0.75;
+const minLayoutTerminalColumns = 72;
 
 function clampSidebarWidth(width: number) {
   return Math.min(maxSidebarWidth, Math.max(minSidebarWidth, width));
@@ -781,6 +783,7 @@ function App() {
         mode: "grid",
         mainRatio: 0.5,
         broadcastInput: false,
+        minTerminalColumns: false,
       },
     ]);
     setActiveTabId(id);
@@ -850,6 +853,7 @@ function App() {
           mode: "grid",
           mainRatio: 0.5,
           broadcastInput: false,
+          minTerminalColumns: false,
         },
       ];
     });
@@ -2851,14 +2855,25 @@ function TerminalStage(props: {
             </button>
           </div>
           <span className="layoutPaneCount">{layout.sessionIds.length} panes</span>
-          <button
-            className={`broadcastToggle ${layout.broadcastInput ? "active" : ""}`}
-            data-testid="layout-broadcast-toggle"
-            aria-pressed={layout.broadcastInput}
-            onClick={() => props.onUpdateLayout(layout.id, { broadcastInput: !layout.broadcastInput })}
-          >
-            Broadcast
-          </button>
+          <div className="layoutToggles">
+            <button
+              className={`layoutToggle ${layout.minTerminalColumns ? "active" : ""}`}
+              data-testid="layout-min-columns-toggle"
+              title="Keep layout terminals at least 72 columns wide"
+              aria-pressed={layout.minTerminalColumns}
+              onClick={() => props.onUpdateLayout(layout.id, { minTerminalColumns: !layout.minTerminalColumns })}
+            >
+              Min 72
+            </button>
+            <button
+              className={`layoutToggle broadcastToggle ${layout.broadcastInput ? "active" : ""}`}
+              data-testid="layout-broadcast-toggle"
+              aria-pressed={layout.broadcastInput}
+              onClick={() => props.onUpdateLayout(layout.id, { broadcastInput: !layout.broadcastInput })}
+            >
+              Broadcast
+            </button>
+          </div>
         </div>
       )}
       <div className={`terminalStage ${modeClass}`} data-testid="terminal-stage" style={gridStyle}>
@@ -2881,6 +2896,7 @@ function TerminalStage(props: {
               fullscreen={fullscreen}
               style={paneStyle}
               broadcastActive={Boolean(layout?.broadcastInput && layout.sessionIds.includes(tab.sessionId))}
+              minColumnsEnabled={Boolean(layout?.minTerminalColumns && layout.sessionIds.includes(tab.sessionId))}
               showPaneControls={Boolean(layout && visible)}
               showFullscreenButton={showFullscreenButton}
               onInput={(sessionId, data) => {
@@ -2937,6 +2953,7 @@ function TerminalPane({
   fullscreen,
   style,
   broadcastActive,
+  minColumnsEnabled,
   showPaneControls,
   showFullscreenButton,
   onInput,
@@ -2953,6 +2970,7 @@ function TerminalPane({
   fullscreen: boolean;
   style?: React.CSSProperties;
   broadcastActive: boolean;
+  minColumnsEnabled: boolean;
   showPaneControls: boolean;
   showFullscreenButton: boolean;
   onInput: (sessionId: Id, data: string) => void;
@@ -2972,6 +2990,7 @@ function TerminalPane({
   const activeRef = useRef(visible);
   const focusedRef = useRef(focused);
   const exitedRef = useRef(exited);
+  const minColumnsRef = useRef(minColumnsEnabled);
   const inputRef = useRef(onInput);
   const closeRef = useRef(onClose);
   const initialOutputWrittenRef = useRef(false);
@@ -2992,6 +3011,10 @@ function TerminalPane({
   useEffect(() => {
     exitedRef.current = exited;
   }, [exited]);
+
+  useEffect(() => {
+    minColumnsRef.current = minColumnsEnabled;
+  }, [minColumnsEnabled]);
 
   useEffect(() => {
     findOpenRef.current = findOpen;
@@ -3073,8 +3096,15 @@ function TerminalPane({
   function resizeTerminal() {
     const terminal = terminalRef.current;
     const fit = fitRef.current;
-    if (!terminal || !fit || !activeRef.current) return;
+    const container = ref.current;
+    if (!terminal || !fit || !container || !activeRef.current) return;
+    container.style.width = "";
     fit.fit();
+    if (minColumnsRef.current && terminal.cols < minLayoutTerminalColumns && terminal.cols > 0) {
+      const minimumWidth = Math.ceil((container.clientWidth * minLayoutTerminalColumns) / terminal.cols);
+      container.style.width = `${minimumWidth}px`;
+      fit.fit();
+    }
     invoke("resize_terminal", {
       sessionId: tab.sessionId,
       cols: terminal.cols,
@@ -3188,7 +3218,7 @@ function TerminalPane({
       if (focused) terminalRef.current?.focus();
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [visible, focused, fullscreen, style]);
+  }, [visible, focused, fullscreen, style, minColumnsEnabled]);
 
   return (
     <div
@@ -3273,7 +3303,9 @@ function TerminalPane({
           </button>
         )}
       </div>
-      <div ref={ref} className="terminal" />
+      <div className="terminalScroller">
+        <div ref={ref} className={`terminal ${minColumnsEnabled ? "minColumns" : ""}`} />
+      </div>
     </div>
   );
 }

@@ -7,6 +7,7 @@ declare global {
       invoke: typeof tauriInvoke;
       listen: typeof tauriListen;
       emit?: (eventName: string, payload: unknown) => void;
+      resizeCalls?: { sessionId: string; cols: number; rows: number }[];
     };
   }
 }

@@ -106,6 +106,44 @@ test("captures the simulated terminal grid layout", async ({ page }) => {
   await expect(page.getByTestId("terminal-stage-panel")).toHaveScreenshot("simulation-grid-layout.png");
 });
 
+test("keeps layout terminals at least 72 columns wide when enabled", async ({ page }) => {
+  await openSimulationTerminals(page, ["web-prod-01", "db-prod-01", "cache-prod-01"]);
+  await page.getByTestId("create-layout-tab").click();
+  await expect(page.getByTestId("layout-min-columns-toggle")).toHaveAttribute("aria-pressed", "false");
+
+  await page.addStyleTag({
+    content: `
+      .terminalStage { max-width: 430px; }
+    `,
+  });
+  const sessionIds = await Promise.all(
+    ["web-prod-01", "db-prod-01", "cache-prod-01"].map((title) => terminalSessionId(page, title)),
+  );
+  await page.evaluate(() => {
+    window.__STASSH_TEST_API__?.resizeCalls?.splice(0);
+  });
+  await page.getByTestId("layout-min-columns-toggle").click();
+
+  await expect(page.getByTestId("layout-min-columns-toggle")).toHaveClass(/active/);
+  await expect(page.getByTestId("layout-min-columns-toggle")).toHaveAttribute("aria-pressed", "true");
+  await expect
+    .poll(async () =>
+      page.evaluate((sessionIds) => {
+        const calls = window.__STASSH_TEST_API__?.resizeCalls ?? [];
+        return sessionIds.every((sessionId) => {
+          const lastCall = calls.filter((call) => call.sessionId === sessionId).at(-1);
+          return lastCall ? lastCall.cols >= 72 : false;
+        });
+      }, sessionIds),
+    )
+    .toBe(true);
+
+  const scroller = page.getByTestId("terminal-pane-web-prod-01").locator(".terminalScroller");
+  await expect
+    .poll(async () => scroller.evaluate((element) => element.scrollWidth > element.clientWidth))
+    .toBe(true);
+});
+
 test("captures main-pane mode with broadcast input enabled", async ({ page }) => {
   await openSimulationTerminals(page, ["web-prod-01", "db-prod-01", "cache-prod-01"]);
   await page.getByTestId("create-layout-tab").click();
@@ -327,6 +365,7 @@ async function installTauriMock(page: Page) {
   await page.addInitScript(({ snapshot }) => {
     const listeners = new Map<string, Set<Listener>>();
     const sessionHostById = new Map<string, string>();
+    const resizeCalls: { sessionId: string; cols: number; rows: number }[] = [];
     let sessionIndex = 0;
 
     function emit(eventName: string, payload: unknown) {
@@ -358,6 +397,7 @@ async function installTauriMock(page: Page) {
 
     window.__STASSH_TEST_API__ = {
       emit,
+      resizeCalls,
       invoke: async (command: string, args?: Record<string, unknown>) => {
         if (command === "load_workspace" || command === "reload_workspace") return snapshot;
         if (command === "host_details") {
@@ -431,7 +471,15 @@ async function installTauriMock(page: Page) {
           });
           return null;
         }
-        if (command === "resize_terminal" || command === "close_session") return null;
+        if (command === "resize_terminal") {
+          resizeCalls.push({
+            sessionId: String(args?.sessionId),
+            cols: Number(args?.cols),
+            rows: Number(args?.rows),
+          });
+          return null;
+        }
+        if (command === "close_session") return null;
         throw new Error(`unhandled test command: ${command}`);
       },
       listen: async (eventName: string, listener: Listener) => {

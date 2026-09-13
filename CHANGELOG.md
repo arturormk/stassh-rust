@@ -23,6 +23,9 @@ All notable changes to this project will be documented in this file.
 - GUI layout Broadcast mode is now more visible: the Broadcast control sits on
   the right side of the layout toolbar, and active broadcast layouts highlight
   each participating terminal pane header.
+- GUI layout tabs now include a per-layout `Min 72` toggle that keeps narrow
+  terminal panes at least 72 columns wide and adds horizontal scrolling instead
+  of forcing heavy line wrapping.
 - GUI folder Inspector details now include an Open All action for opening every
   direct host in the selected folder.
 - The GUI empty workspace view can now probe every host in a selected folder and

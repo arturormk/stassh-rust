@@ -16,8 +16,8 @@ Secrets. Keep it in the repo while there are open GUI items.
   render checks for simulation views, and the GUI has Playwright screenshot
   checks for simulated terminal layout tabs, drag/drop layout composition,
   equal-grid and main-pane modes, broadcast input, internal full-screen panes,
-  focused terminal find, tab reordering, and scrollback preservation. Remaining
-  optional work is a full Tauri
+  focused terminal find, minimum-width layout panes, tab reordering, and
+  scrollback preservation. Remaining optional work is a full Tauri
   `./run-stassh-gui-dev.sh --simulation --headless` smoke test if CI has stable
   graphical dependencies. The committed screenshot pair in
   `examples/github-screenshot/` remains the manual baseline for README images;

@@ -423,6 +423,13 @@ code {
   white-space: nowrap;
 }
 
+.layoutToggles {
+  display: inline-flex;
+  justify-self: end;
+  gap: 6px;
+  min-width: 0;
+}
+
 .layoutSegment {
   display: inline-flex;
   border: 1px solid #343b46;
@@ -442,8 +449,7 @@ code {
   color: #ffffff;
 }
 
-.broadcastToggle {
-  justify-self: end;
+.layoutToggle {
   width: fit-content;
   min-height: 26px;
   gap: 0;
@@ -455,14 +461,14 @@ code {
   white-space: nowrap;
 }
 
-.broadcastToggle.active {
+.layoutToggle.active {
   border-color: #ffd166;
   color: #171007;
   background: #ffd166;
   box-shadow: 0 0 0 2px rgba(255, 209, 102, 0.2);
 }
 
-.broadcastToggle.active:hover {
+.layoutToggle.active:hover {
   background: #ffe08f;
 }
 
@@ -1296,11 +1302,24 @@ code {
   min-height: 34px;
 }
 
-.terminal {
+.terminalScroller {
   min-height: 0;
   flex: 1;
-  padding: 6px;
+  overflow: auto;
   background: #101317;
+}
+
+.terminal {
+  min-height: 100%;
+  height: 100%;
+  padding: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  background: #101317;
+}
+
+.terminal.minColumns {
+  min-width: calc(72ch + 12px);
 }
 
 .mainSplitHandle {

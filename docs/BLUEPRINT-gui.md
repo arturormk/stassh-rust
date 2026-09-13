@@ -448,6 +448,8 @@ Current session affordances:
 * drag one terminal tab onto another terminal tab to create a new layout,
 * reorder terminal and layout tabs while keeping terminal scrollback mounted,
 * use layout-local broadcast input,
+* keep narrow layout panes at a 72-column terminal minimum with horizontal
+  scrolling,
 * full-screen the focused terminal pane inside the app window,
 * search focused terminal scrollback with optional case sensitivity,
 * show host notes in terminal headers when notes are available,
@@ -671,6 +673,7 @@ Already-implemented terminal scenarios should also remain covered:
 * create layouts by dragging one terminal tab onto another,
 * switch between equal-grid and main-pane layout modes,
 * broadcast input to all panes in a layout,
+* keep layout panes at a 72-column terminal minimum with horizontal scrolling,
 * search focused terminal scrollback,
 * confirm before closing a still-running terminal session,
 * full-screen and exit the focused terminal pane,
