@@ -116,6 +116,10 @@ test("captures main-pane mode with broadcast input enabled", async ({ page }) =>
   await page.keyboard.press("Enter");
 
   await expect(page.getByText("Broadcast")).toHaveClass(/active/);
+  await expect(page.getByTitle("Use as main pane")).toHaveCount(0);
+  await expect(page.getByTestId("terminal-fullscreen-button-web-prod-01")).toBeVisible();
+  await expect(page.getByTestId("terminal-fullscreen-button-db-prod-01")).toHaveCount(0);
+  await expect(page.getByTestId("terminal-fullscreen-button-cache-prod-01")).toHaveCount(0);
   await page.waitForTimeout(1_100);
   await expect(page.getByTestId("terminal-stage-panel")).toHaveScreenshot("simulation-main-broadcast-layout.png");
 });

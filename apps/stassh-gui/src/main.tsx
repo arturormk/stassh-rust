@@ -2696,6 +2696,9 @@ function TerminalStage(props: {
           const visible = visibleSessionSet.has(tab.sessionId);
           const focused = focusedSessionId === tab.sessionId;
           const fullscreen = props.fullscreenSessionId === tab.sessionId;
+          const mainSessionId = layout?.activeSessionId ?? layout?.sessionIds[0] ?? null;
+          const isMainLayoutPane = layout?.mode === "main" && mainSessionId === tab.sessionId;
+          const showFullscreenButton = !layout || layout.mode !== "main" || isMainLayoutPane || fullscreen;
           const paneStyle = layout ? layoutPaneStyle(layout, tab.sessionId) : undefined;
           const notes = hostsById.get(tab.hostId)?.notes ?? null;
           return (
@@ -2708,6 +2711,7 @@ function TerminalStage(props: {
               fullscreen={fullscreen}
               style={paneStyle}
               showPaneControls={Boolean(layout && visible)}
+              showFullscreenButton={showFullscreenButton}
               onInput={(sessionId, data) => {
                 if (layout?.broadcastInput && layout.sessionIds.includes(sessionId)) {
                   for (const targetSessionId of layout.sessionIds) props.onInput(targetSessionId, data);
@@ -2720,7 +2724,6 @@ function TerminalStage(props: {
                 if (layout && visible) props.onUpdateLayout(layout.id, { activeSessionId: tab.sessionId });
                 else props.onActivateTab(tab.id);
               }}
-              onMakeMain={() => layout && props.onUpdateLayout(layout.id, { activeSessionId: tab.sessionId, mode: "main" })}
               onRemove={() => layout && props.onRemoveFromLayout(layout.id, tab.sessionId)}
               onEnterFullscreen={() => props.onEnterFullscreen(tab.sessionId)}
               onExitFullscreen={props.onExitFullscreen}
@@ -2754,9 +2757,9 @@ function TerminalPane({
   fullscreen,
   style,
   showPaneControls,
+  showFullscreenButton,
   onInput,
   onFocus,
-  onMakeMain,
   onRemove,
   onEnterFullscreen,
   onExitFullscreen,
@@ -2769,9 +2772,9 @@ function TerminalPane({
   fullscreen: boolean;
   style?: React.CSSProperties;
   showPaneControls: boolean;
+  showFullscreenButton: boolean;
   onInput: (sessionId: Id, data: string) => void;
   onFocus: () => void;
-  onMakeMain: () => void;
   onRemove: () => void;
   onEnterFullscreen: () => void;
   onExitFullscreen: () => void;
@@ -3072,22 +3075,21 @@ function TerminalPane({
         <small className={`terminalStateBadge ${exited ? "exited" : "running"}`}>{tab.status}</small>
         {showPaneControls && (
           <div className="paneActions">
-            <button title="Use as main pane" onClick={onMakeMain}>
-              Main
-            </button>
             <button title="Remove from layout" onClick={onRemove}>
               <X size={13} />
             </button>
           </div>
         )}
-        <button
-          className="paneFullscreenButton"
-          data-testid={`terminal-fullscreen-button-${tab.title}`}
-          title={fullscreen ? "Exit full screen" : "Full screen"}
-          onClick={fullscreen ? onExitFullscreen : onEnterFullscreen}
-        >
-          {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-        </button>
+        {showFullscreenButton && (
+          <button
+            className="paneFullscreenButton"
+            data-testid={`terminal-fullscreen-button-${tab.title}`}
+            title={fullscreen ? "Exit full screen" : "Full screen"}
+            onClick={fullscreen ? onExitFullscreen : onEnterFullscreen}
+          >
+            {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+          </button>
+        )}
       </div>
       <div ref={ref} className="terminal" />
     </div>

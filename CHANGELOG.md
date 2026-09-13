@@ -15,6 +15,8 @@ All notable changes to this project will be documented in this file.
   package managers so local `.deb` files are not mistaken for package names.
 - GUI terminal panes now support `Ctrl+Shift+C` to copy selected terminal text
   and `Ctrl+Shift+V` to paste from the clipboard.
+- GUI Main layout mode now uses pane selection to promote the main terminal and
+  only shows the full-screen control on the current main pane.
 - The GUI Inspector now follows the last selected host across tree selections,
   terminal tabs, layout panes, and exited terminal panes.
 - Actions now support config-aware SSH transfer templates for helpers such as
