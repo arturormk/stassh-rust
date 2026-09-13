@@ -13,6 +13,8 @@ All notable changes to this project will be documented in this file.
   can offer to install successfully built `.deb` or `.rpm` packages.
 - GUI quickstart package installation now passes absolute artifact paths to
   package managers so local `.deb` files are not mistaken for package names.
+- GUI quickstart `.deb` package installation now asks `apt-get` to reinstall so
+  same-version local builds replace the installed package.
 - GUI terminal panes now support `Ctrl+Shift+C` to copy selected terminal text
   and `Ctrl+Shift+V` to paste from the clipboard.
 - GUI Main layout mode now uses pane selection to promote the main terminal and

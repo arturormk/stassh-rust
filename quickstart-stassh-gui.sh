@@ -331,7 +331,7 @@ install_deb_package() {
   path="$(absolute_path "$1")"
 
   if command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get install -y "$path"
+    sudo apt-get install -y --reinstall "$path"
     return $?
   fi
 
