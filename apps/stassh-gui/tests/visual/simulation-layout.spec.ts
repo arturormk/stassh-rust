@@ -13,12 +13,12 @@ const ids = {
   db: "00000000-0000-0000-0000-000000000013",
   cache: "00000000-0000-0000-0000-000000000014",
   metrics: "00000000-0000-0000-0000-000000000016",
-  cclarios01: "00000000-0000-0000-0000-000000000021",
-  cclarios02: "00000000-0000-0000-0000-000000000022",
-  cclarios03: "00000000-0000-0000-0000-000000000023",
-  cclarios04: "00000000-0000-0000-0000-000000000024",
-  cclarios05: "00000000-0000-0000-0000-000000000025",
-  cclarios06: "00000000-0000-0000-0000-000000000026",
+  cluster01: "00000000-0000-0000-0000-000000000021",
+  cluster02: "00000000-0000-0000-0000-000000000022",
+  cluster03: "00000000-0000-0000-0000-000000000023",
+  cluster04: "00000000-0000-0000-0000-000000000024",
+  cluster05: "00000000-0000-0000-0000-000000000025",
+  cluster06: "00000000-0000-0000-0000-000000000026",
 };
 
 const folders = [
@@ -47,27 +47,27 @@ const hosts = [
     "prod",
     "cache",
   ]),
-  host(ids.cclarios01, ids.prod, "Root / Production / cclarios01", "cclarios01", "cclarios01.prod.corp.example", "ops", [
+  host(ids.cluster01, ids.prod, "Root / Production / cluster-prod-01", "cluster-prod-01", "cluster01.prod.corp.example", "ops", [
     "prod",
     "cluster",
   ]),
-  host(ids.cclarios02, ids.prod, "Root / Production / cclarios02", "cclarios02", "cclarios02.prod.corp.example", "ops", [
+  host(ids.cluster02, ids.prod, "Root / Production / cluster-prod-02", "cluster-prod-02", "cluster02.prod.corp.example", "ops", [
     "prod",
     "cluster",
   ]),
-  host(ids.cclarios03, ids.prod, "Root / Production / cclarios03", "cclarios03", "cclarios03.prod.corp.example", "ops", [
+  host(ids.cluster03, ids.prod, "Root / Production / cluster-prod-03", "cluster-prod-03", "cluster03.prod.corp.example", "ops", [
     "prod",
     "cluster",
   ]),
-  host(ids.cclarios04, ids.prod, "Root / Production / cclarios04", "cclarios04", "cclarios04.prod.corp.example", "ops", [
+  host(ids.cluster04, ids.prod, "Root / Production / cluster-prod-04", "cluster-prod-04", "cluster04.prod.corp.example", "ops", [
     "prod",
     "cluster",
   ]),
-  host(ids.cclarios05, ids.prod, "Root / Production / cclarios05", "cclarios05", "cclarios05.prod.corp.example", "ops", [
+  host(ids.cluster05, ids.prod, "Root / Production / cluster-prod-05", "cluster-prod-05", "cluster05.prod.corp.example", "ops", [
     "prod",
     "cluster",
   ]),
-  host(ids.cclarios06, ids.prod, "Root / Production / cclarios06", "cclarios06", "cclarios06.prod.corp.example", "ops", [
+  host(ids.cluster06, ids.prod, "Root / Production / cluster-prod-06", "cluster-prod-06", "cluster06.prod.corp.example", "ops", [
     "prod",
     "cluster",
   ]),
@@ -176,7 +176,14 @@ test("keeps layout terminals at least 72 columns wide when enabled", async ({ pa
 });
 
 test("keeps patterned host suffixes visible in dense layout headers", async ({ page }) => {
-  const names = ["cclarios01", "cclarios02", "cclarios03", "cclarios04", "cclarios05", "cclarios06"];
+  const names = [
+    "cluster-prod-01",
+    "cluster-prod-02",
+    "cluster-prod-03",
+    "cluster-prod-04",
+    "cluster-prod-05",
+    "cluster-prod-06",
+  ];
   await openSimulationTerminals(page, names);
   await page.getByTestId("create-layout-tab").click();
   await page.addStyleTag({
@@ -448,9 +455,9 @@ test("pings selected folder hosts from the empty workspace", async ({ page }) =>
   await page.getByTestId("folder-row-Production").click();
   await page.getByTestId("folder-ping-button").click();
 
-  await expect(page.getByTestId("folder-ping-summary")).toHaveText("0/3 checked - 0 succeeded - 0 failed");
+  await expect(page.getByTestId("folder-ping-summary")).toHaveText("0/9 checked - 0 succeeded - 0 failed");
   await expect(page.getByTestId("folder-ping-started")).toContainText("Last Ping All:");
-  await expect(page.getByTestId("folder-ping-summary")).toHaveText("3/3 checked - 3 succeeded - 0 failed");
+  await expect(page.getByTestId("folder-ping-summary")).toHaveText("9/9 checked - 9 succeeded - 0 failed");
   await expect(page.getByTestId("folder-ping-results")).toContainText("web-prod-01");
   await expect(page.getByTestId("folder-ping-results")).toContainText("db-prod-01");
   await expect(page.getByTestId("folder-ping-results")).toContainText("cache-prod-01");
