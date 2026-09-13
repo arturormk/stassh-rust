@@ -602,7 +602,8 @@ Current GUI capabilities:
 - show host notes in terminal headers when notes are available
 - confirm before closing a still-running terminal session
 - close an exited focused terminal by pressing `Enter`; layout tabs are removed
-  automatically when their last terminal closes
+  automatically when their last terminal closes, and Broadcast mode applies the
+  close action to all exited panes in that layout
 - see host-tree indicators for how many SSH sessions are open for each host
 - launch `--simulation` to use in-memory corporate-style demo data, scripted
   terminal sessions, and fake encrypted secrets for screenshot-safe demos

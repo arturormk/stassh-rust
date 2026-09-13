@@ -253,6 +253,30 @@ test("closes a selected exited terminal when Enter is pressed", async ({ page })
   await expect(tabTitles(page)).resolves.toEqual(["db-prod-01"]);
 });
 
+test("broadcasts Enter pane close across exited layout terminals", async ({ page }) => {
+  await openSimulationTerminals(page, ["web-prod-01", "db-prod-01", "cache-prod-01"]);
+  await page.getByTestId("create-layout-tab").click();
+  await page.getByTestId("layout-broadcast-toggle").click();
+  await page.getByTestId("terminal-pane-web-prod-01").click();
+
+  const sessionIds = await Promise.all(
+    ["web-prod-01", "db-prod-01", "cache-prod-01"].map((title) => terminalSessionId(page, title)),
+  );
+  for (const sessionId of sessionIds) {
+    await page.evaluate((sessionId) => {
+      window.__STASSH_TEST_API__?.emit("session-exit", { sessionId, message: "EXITED" });
+    }, sessionId);
+  }
+
+  await page.keyboard.press("Enter");
+
+  await expect(page.getByTestId("tab-web-prod-01")).toHaveCount(0);
+  await expect(page.getByTestId("tab-db-prod-01")).toHaveCount(0);
+  await expect(page.getByTestId("tab-cache-prod-01")).toHaveCount(0);
+  await expect(page.getByTestId("tab-Layout 1")).toHaveCount(0);
+  await expect(tabTitles(page)).resolves.toEqual([]);
+});
+
 test("removes a layout tab after its last terminal is closed", async ({ page }) => {
   await openSimulationTerminals(page, ["web-prod-01"]);
   await page.getByTestId("create-layout-tab").click();

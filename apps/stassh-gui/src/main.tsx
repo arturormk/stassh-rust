@@ -627,47 +627,61 @@ function App() {
     }
   }
 
+  function closeTerminalTabs(terminalTabs: Extract<Tab, { type: "terminal" }>[], confirmRunning = true) {
+    const closingTabs: Extract<Tab, { type: "terminal" }>[] = [];
+    for (const tab of terminalTabs) {
+      if (tab.status === "running" && confirmRunning && !window.confirm(`Close connected terminal ${tab.title}?`)) {
+        continue;
+      }
+      closingTabs.push(tab);
+    }
+    if (!closingTabs.length) return;
+
+    const closedSessionIds = new Set(closingTabs.map((tab) => tab.sessionId));
+    const closedTabIds = new Set(closingTabs.map((tab) => tab.id));
+    const closedHostIds = new Set(closingTabs.map((tab) => tab.hostId));
+    setTerminalOrder((current) => current.filter((sessionId) => !closedSessionIds.has(sessionId)));
+    setFullscreenSessionId((current) => (current && closedSessionIds.has(current) ? null : current));
+    const nextTabs = tabs
+      .filter((item) => !closedTabIds.has(item.id))
+      .map((item) => {
+        if (item.type !== "layout") return item;
+        const sessionIds = item.sessionIds.filter((sessionId) => !closedSessionIds.has(sessionId));
+        return {
+          ...item,
+          sessionIds,
+          activeSessionId:
+            item.activeSessionId && closedSessionIds.has(item.activeSessionId)
+              ? sessionIds[0] ?? null
+              : item.activeSessionId,
+        };
+      })
+      .filter((item) => item.type !== "layout" || item.sessionIds.length > 0);
+    const nextActiveTabId =
+      activeTabId && nextTabs.some((item) => item.id === activeTabId) ? activeTabId : nextTabs[0]?.id ?? null;
+    setTabs(nextTabs);
+    setActiveTabId(nextActiveTabId);
+    if (!nextActiveTabId) {
+      setSelection((current) => (current?.type === "host" && closedHostIds.has(current.id) ? null : current));
+      setInspectorSelection((current) => (current?.type === "host" && closedHostIds.has(current.id) ? null : current));
+    }
+    for (const tab of closingTabs) {
+      invoke("close_session", { sessionId: tab.sessionId }).catch(() => undefined);
+    }
+    window.requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+  }
+
   async function closeTab(tab: Tab) {
     if (tab.type === "terminal") {
-      if (tab.status === "running" && !window.confirm(`Close connected terminal ${tab.title}?`)) {
-        return;
-      }
-      setTerminalOrder((current) => current.filter((sessionId) => sessionId !== tab.sessionId));
-      setFullscreenSessionId((current) => (current === tab.sessionId ? null : current));
-      const nextTabs = tabs
-        .filter((item) => item.id !== tab.id)
-        .map((item) =>
-          item.type === "layout"
-            ? {
-                ...item,
-                sessionIds: item.sessionIds.filter((sessionId) => sessionId !== tab.sessionId),
-                activeSessionId:
-                  item.activeSessionId === tab.sessionId
-                    ? item.sessionIds.find((sessionId) => sessionId !== tab.sessionId) ?? null
-                    : item.activeSessionId,
-              }
-            : item,
-        )
-        .filter((item) => item.type !== "layout" || item.sessionIds.length > 0);
-      const nextActiveTabId =
-        activeTabId === tab.id || !nextTabs.some((item) => item.id === activeTabId)
-          ? nextTabs[0]?.id ?? null
-          : activeTabId;
-      setTabs(nextTabs);
-      setActiveTabId(nextActiveTabId);
-      if (!nextActiveTabId) {
-        setSelection((current) => (current?.type === "host" && current.id === tab.hostId ? null : current));
-        setInspectorSelection((current) => (current?.type === "host" && current.id === tab.hostId ? null : current));
-      }
-      invoke("close_session", { sessionId: tab.sessionId }).catch(() => undefined);
+      closeTerminalTabs([tab]);
     } else {
       const next = tabs.filter((item) => item.id !== tab.id);
       setTabs(next);
       if (activeTabId === tab.id || !next.some((item) => item.id === activeTabId)) {
         setActiveTabId(next[0]?.id ?? null);
       }
+      window.requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
     }
-    window.requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
   }
 
   function createLayoutTab() {
@@ -1421,6 +1435,7 @@ function App() {
             onEnterFullscreen={setFullscreenSessionId}
             onExitFullscreen={() => setFullscreenSessionId(null)}
             onCloseTerminal={(tab) => closeTab(tab)}
+            onCloseTerminals={(tabs) => closeTerminalTabs(tabs, false)}
           />
         </div>
       </section>
@@ -2592,6 +2607,7 @@ function TerminalStage(props: {
   onEnterFullscreen: (sessionId: Id) => void;
   onExitFullscreen: () => void;
   onCloseTerminal: (tab: Extract<Tab, { type: "terminal" }>) => void;
+  onCloseTerminals: (tabs: Extract<Tab, { type: "terminal" }>[]) => void;
 }) {
   const terminalById = new Map(
     props.tabs
@@ -2727,7 +2743,16 @@ function TerminalStage(props: {
               onRemove={() => layout && props.onRemoveFromLayout(layout.id, tab.sessionId)}
               onEnterFullscreen={() => props.onEnterFullscreen(tab.sessionId)}
               onExitFullscreen={props.onExitFullscreen}
-              onClose={() => props.onCloseTerminal(tab)}
+              onClose={() => {
+                if (layout?.broadcastInput && layout.sessionIds.includes(tab.sessionId)) {
+                  const exitedLayoutTabs = terminalTabs.filter(
+                    (candidate) => layout.sessionIds.includes(candidate.sessionId) && isTerminalExited(candidate),
+                  );
+                  props.onCloseTerminals(exitedLayoutTabs);
+                } else {
+                  props.onCloseTerminal(tab);
+                }
+              }}
             />
           );
         })}
