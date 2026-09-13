@@ -28,6 +28,9 @@ All notable changes to this project will be documented in this file.
   terminal panes at least 72 columns wide and adds horizontal scrolling instead
   of forcing heavy line wrapping. Main layout mode now enforces that minimum
   automatically without changing the saved Grid-mode toggle state.
+- GUI layout panes can now be reordered by dragging pane headers. Main layout
+  mode keeps the selected main pane while preserving the reordered secondary
+  pane order from left to right, then top to bottom.
 - GUI folder Inspector details now include a primary Open All action for opening
   every direct host in the selected folder, with Rename and Delete grouped
   beneath it as secondary maintenance actions.

@@ -892,6 +892,22 @@ function App() {
     );
   }
 
+  function reorderLayoutSession(layoutId: Id, sourceSessionId: Id, targetSessionId: Id) {
+    if (sourceSessionId === targetSessionId) return;
+    setTabs((current) =>
+      current.map((tab) => {
+        if (tab.type !== "layout" || tab.id !== layoutId) return tab;
+        if (!tab.sessionIds.includes(sourceSessionId) || !tab.sessionIds.includes(targetSessionId)) return tab;
+        const sessionIds = tab.sessionIds.filter((id) => id !== sourceSessionId);
+        const targetIndex = sessionIds.indexOf(targetSessionId);
+        if (targetIndex < 0) return tab;
+        sessionIds.splice(targetIndex, 0, sourceSessionId);
+        return { ...tab, sessionIds };
+      }),
+    );
+    window.requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+  }
+
   function writeTerminalInput(sessionId: Id, data: string) {
     invoke("write_terminal", { sessionId, data }).catch((err) => setStatus(String(err)));
   }
@@ -1532,6 +1548,7 @@ function App() {
             onActivateTab={setActiveTabId}
             onInspectTerminal={inspectTerminal}
             onUpdateLayout={updateLayout}
+            onReorderLayoutSession={reorderLayoutSession}
             onRemoveFromLayout={removeSessionFromLayout}
             onEnterFullscreen={setFullscreenSessionId}
             onExitFullscreen={() => setFullscreenSessionId(null)}
@@ -2781,6 +2798,7 @@ function TerminalStage(props: {
   onActivateTab: (tabId: Id) => void;
   onInspectTerminal: (tab: Extract<Tab, { type: "terminal" }>) => void;
   onUpdateLayout: (layoutId: Id, patch: Partial<Extract<Tab, { type: "layout" }>>) => void;
+  onReorderLayoutSession: (layoutId: Id, sourceSessionId: Id, targetSessionId: Id) => void;
   onRemoveFromLayout: (layoutId: Id, sessionId: Id) => void;
   onEnterFullscreen: (sessionId: Id) => void;
   onExitFullscreen: () => void;
@@ -2813,6 +2831,8 @@ function TerminalStage(props: {
     props.fullscreenSessionId ??
     (props.activeTab?.type === "terminal" ? props.activeTab.sessionId : layout?.activeSessionId ?? null);
   const modeClass = layout ? `layoutMode ${layout.mode}` : props.activeTab?.type === "terminal" ? "singleMode" : "";
+  const [draggingPaneSessionId, setDraggingPaneSessionId] = useState<Id | null>(null);
+  const [paneDropTargetSessionId, setPaneDropTargetSessionId] = useState<Id | null>(null);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
@@ -2846,6 +2866,45 @@ function TerminalStage(props: {
       event.currentTarget.releasePointerCapture(event.pointerId);
       window.dispatchEvent(new Event("resize"));
     }
+  }
+
+  function startPaneDrag(event: React.DragEvent<HTMLDivElement>, sessionId: Id) {
+    if (!layout) return;
+    setDraggingPaneSessionId(sessionId);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-stassh-layout-pane-session", sessionId);
+    event.dataTransfer.setData("text/plain", sessionId);
+  }
+
+  function dragOverPane(event: React.DragEvent<HTMLDivElement>, sessionId: Id) {
+    if (!layout || !draggingPaneSessionId || draggingPaneSessionId === sessionId) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setPaneDropTargetSessionId(sessionId);
+  }
+
+  function leavePaneDropTarget(event: React.DragEvent<HTMLDivElement>, sessionId: Id) {
+    if (paneDropTargetSessionId !== sessionId || event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      return;
+    }
+    setPaneDropTargetSessionId(null);
+  }
+
+  function dropPane(event: React.DragEvent<HTMLDivElement>, sessionId: Id) {
+    if (!layout) return;
+    event.preventDefault();
+    const sourceSessionId =
+      event.dataTransfer.getData("application/x-stassh-layout-pane-session") || draggingPaneSessionId;
+    if (sourceSessionId && sourceSessionId !== sessionId) {
+      props.onReorderLayoutSession(layout.id, sourceSessionId, sessionId);
+    }
+    setDraggingPaneSessionId(null);
+    setPaneDropTargetSessionId(null);
+  }
+
+  function endPaneDrag() {
+    setDraggingPaneSessionId(null);
+    setPaneDropTargetSessionId(null);
   }
 
   const gridStyle = layout ? layoutStageStyle(layout) : undefined;
@@ -2929,6 +2988,9 @@ function TerminalStage(props: {
               broadcastActive={Boolean(layout?.broadcastInput && layout.sessionIds.includes(tab.sessionId))}
               minColumnsEnabled={Boolean(minColumnsActive && layout?.sessionIds.includes(tab.sessionId))}
               promotesToMain={promotesToMain}
+              layoutDraggable={Boolean(layout && visible && !fullscreen)}
+              dragging={draggingPaneSessionId === tab.sessionId}
+              dropTarget={paneDropTargetSessionId === tab.sessionId}
               showPaneControls={Boolean(layout && visible)}
               showFullscreenButton={showFullscreenButton}
               onInput={(sessionId, data) => {
@@ -2943,6 +3005,11 @@ function TerminalStage(props: {
                 if (layout && visible) props.onUpdateLayout(layout.id, { activeSessionId: tab.sessionId });
                 else props.onActivateTab(tab.id);
               }}
+              onDragStart={(event) => layout && startPaneDrag(event, tab.sessionId)}
+              onDragOver={(event) => dragOverPane(event, tab.sessionId)}
+              onDragLeave={(event) => leavePaneDropTarget(event, tab.sessionId)}
+              onDrop={(event) => dropPane(event, tab.sessionId)}
+              onDragEnd={endPaneDrag}
               onRemove={() => layout && props.onRemoveFromLayout(layout.id, tab.sessionId)}
               onEnterFullscreen={() => props.onEnterFullscreen(tab.sessionId)}
               onExitFullscreen={props.onExitFullscreen}
@@ -2988,10 +3055,18 @@ function TerminalPane({
   broadcastActive,
   minColumnsEnabled,
   promotesToMain,
+  layoutDraggable,
+  dragging,
+  dropTarget,
   showPaneControls,
   showFullscreenButton,
   onInput,
   onFocus,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
   onRemove,
   onEnterFullscreen,
   onExitFullscreen,
@@ -3007,10 +3082,18 @@ function TerminalPane({
   broadcastActive: boolean;
   minColumnsEnabled: boolean;
   promotesToMain: boolean;
+  layoutDraggable: boolean;
+  dragging: boolean;
+  dropTarget: boolean;
   showPaneControls: boolean;
   showFullscreenButton: boolean;
   onInput: (sessionId: Id, data: string) => void;
   onFocus: () => void;
+  onDragStart: (event: React.DragEvent<HTMLDivElement>) => void;
+  onDragOver: (event: React.DragEvent<HTMLDivElement>) => void;
+  onDragLeave: (event: React.DragEvent<HTMLDivElement>) => void;
+  onDrop: (event: React.DragEvent<HTMLDivElement>) => void;
+  onDragEnd: () => void;
   onRemove: () => void;
   onEnterFullscreen: () => void;
   onExitFullscreen: () => void;
@@ -3260,13 +3343,28 @@ function TerminalPane({
     <div
       className={`terminalPanel ${visible ? "active" : ""} ${focused ? "focused" : ""} ${
         fullscreen ? "fullscreen" : ""
-      } ${broadcastActive ? "broadcastActive" : ""} ${promotesToMain ? "promotesToMain" : ""}`}
+      } ${broadcastActive ? "broadcastActive" : ""} ${promotesToMain ? "promotesToMain" : ""} ${
+        dragging ? "dragging" : ""
+      } ${dropTarget ? "paneDropTarget" : ""}`}
       data-testid={`terminal-pane-${tab.title}`}
       style={style}
       title={promotesToMain ? "Click to make this the main pane" : undefined}
       onMouseDown={onFocus}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
     >
-      <div className={`terminalStatus ${broadcastActive ? "broadcastActive" : ""}`}>
+      <div
+        className={`terminalStatus ${broadcastActive ? "broadcastActive" : ""} ${
+          layoutDraggable ? "layoutDraggable" : ""
+        }`}
+        draggable={layoutDraggable && !findOpen}
+        onMouseDown={(event) => {
+          if (layoutDraggable) event.stopPropagation();
+        }}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+      >
         <div className="terminalTitle">
           <span className="terminalHostTitle" title={titleDisplay.fullTitle}>
             <span className="terminalHostPrefix">{titleDisplay.prefix}</span>

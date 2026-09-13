@@ -292,6 +292,48 @@ test("captures a layout created by dragging one terminal tab onto another", asyn
   await expect(page.getByTestId("terminal-stage-panel")).toHaveScreenshot("simulation-drag-created-layout.png");
 });
 
+test("reorders panes in grid layout by dragging pane headers", async ({ page }) => {
+  await openSimulationTerminals(page, ["web-prod-01", "db-prod-01", "cache-prod-01"]);
+  await page.getByTestId("create-layout-tab").click();
+
+  await expect(paneVisualOrder(page, ["web-prod-01", "db-prod-01", "cache-prod-01"])).resolves.toEqual([
+    "web-prod-01",
+    "db-prod-01",
+    "cache-prod-01",
+  ]);
+
+  await dragPaneHeaderOnto(page, "cache-prod-01", "web-prod-01");
+
+  await expect(paneVisualOrder(page, ["web-prod-01", "db-prod-01", "cache-prod-01"])).resolves.toEqual([
+    "cache-prod-01",
+    "web-prod-01",
+    "db-prod-01",
+  ]);
+  await expect(page.getByTestId("terminal-pane-cache-prod-01")).toContainText("stassh simulation mode");
+});
+
+test("reorders secondary panes in main layout without changing the main pane", async ({ page }) => {
+  await openSimulationTerminals(page, ["web-prod-01", "db-prod-01", "cache-prod-01"]);
+  await page.getByTestId("create-layout-tab").click();
+  await page.getByTestId("layout-main-mode").click();
+  await page.getByTestId("terminal-pane-db-prod-01").click();
+  await expect(page.getByTestId("terminal-fullscreen-button-db-prod-01")).toBeVisible();
+
+  await expect(paneVisualOrder(page, ["web-prod-01", "cache-prod-01"])).resolves.toEqual([
+    "web-prod-01",
+    "cache-prod-01",
+  ]);
+
+  await dragPaneHeaderOnto(page, "cache-prod-01", "web-prod-01");
+
+  await expect(page.getByTestId("terminal-fullscreen-button-db-prod-01")).toBeVisible();
+  await expect(page.getByTestId("terminal-fullscreen-button-web-prod-01")).toHaveCount(0);
+  await expect(paneVisualOrder(page, ["web-prod-01", "cache-prod-01"])).resolves.toEqual([
+    "cache-prod-01",
+    "web-prod-01",
+  ]);
+});
+
 test("diagnostics show remediation and navigate to the affected host", async ({ page }) => {
   await expect(page.getByText("Missing identity mapping")).toBeVisible();
   await expect(page.getByText("Open the host identity editor and choose a local key for this fingerprint.")).toBeVisible();
@@ -622,6 +664,37 @@ async function dragTabOnto(page: Page, sourceTitle: string, targetTitle: string)
   await page.mouse.move(sourceX + 12, sourceY, { steps: 4 });
   await page.mouse.move(targetX, targetY, { steps: 12 });
   await page.mouse.up();
+}
+
+async function dragPaneHeaderOnto(page: Page, sourceTitle: string, targetTitle: string) {
+  const source = page.getByTestId(`terminal-pane-${sourceTitle}`).locator(".terminalStatus");
+  const target = page.getByTestId(`terminal-pane-${targetTitle}`).locator(".terminalStatus");
+  const sourceBox = await source.boundingBox();
+  const targetBox = await target.boundingBox();
+  if (!sourceBox || !targetBox) throw new Error("pane drag source or target not visible");
+  const sourceX = sourceBox.x + sourceBox.width / 2;
+  const sourceY = sourceBox.y + sourceBox.height / 2;
+  const targetX = targetBox.x + targetBox.width / 2;
+  const targetY = targetBox.y + targetBox.height / 2;
+
+  await page.mouse.move(sourceX, sourceY);
+  await page.mouse.down();
+  await page.mouse.move(sourceX + 12, sourceY, { steps: 4 });
+  await page.mouse.move(targetX, targetY, { steps: 12 });
+  await page.mouse.up();
+}
+
+async function paneVisualOrder(page: Page, titles: string[]) {
+  const panes = await Promise.all(
+    titles.map(async (title) => {
+      const box = await page.getByTestId(`terminal-pane-${title}`).boundingBox();
+      if (!box) throw new Error(`pane not visible: ${title}`);
+      return { title, x: box.x, y: box.y };
+    }),
+  );
+  return panes
+    .sort((left, right) => left.y - right.y || left.x - right.x)
+    .map((pane) => pane.title);
 }
 
 async function tabTitles(page: Page) {

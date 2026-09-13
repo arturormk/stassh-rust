@@ -449,6 +449,7 @@ Current session affordances:
 * drag a terminal tab onto a layout tab to add it,
 * drag one terminal tab onto another terminal tab to create a new layout,
 * reorder terminal and layout tabs while keeping terminal scrollback mounted,
+* reorder panes within a layout by dragging pane headers,
 * use layout-local broadcast input,
 * keep narrow layout panes at a 72-column terminal minimum with horizontal
   scrolling, enforced automatically in main-pane mode,

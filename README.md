@@ -598,6 +598,8 @@ Current GUI capabilities:
   instead of accepting direct terminal input
 - drag a terminal tab onto a layout tab to add it, or drag one terminal tab onto
   another terminal tab to create a new layout with both
+- reorder panes inside a layout by dragging pane headers; Main layout mode keeps
+  the current main pane while reordering the secondary panes
 - use layout-local Broadcast mode to send terminal input from one pane to all
   panes in that layout, with active broadcast state shown in every pane header
 - make the selected terminal pane internally full-screen inside the app window;
