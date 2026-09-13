@@ -239,6 +239,22 @@ type StartSession = {
   sessionId: Id;
   initialOutput: string;
 };
+
+type HostPingResult = {
+  hostId: Id;
+  path: string;
+  displayName: string;
+  success: boolean;
+  message: string;
+};
+
+type FolderPingProgress = {
+  runId: Id;
+  completed: number;
+  total: number;
+  result: HostPingResult;
+};
+
 type LayoutMode = "grid" | "main";
 type InspectorSource = "details" | "terminal" | "layout";
 
@@ -301,6 +317,21 @@ function folderAncestorIds(folders: FolderView[], folderId: Id) {
   return ids;
 }
 
+function descendantFolderIds(folders: FolderView[], folderId: Id) {
+  const ids = new Set<Id>([folderId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const folder of folders) {
+      if (folder.parentId && ids.has(folder.parentId) && !ids.has(folder.id)) {
+        ids.add(folder.id);
+        changed = true;
+      }
+    }
+  }
+  return ids;
+}
+
 function App() {
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -331,6 +362,13 @@ function App() {
   const [forwardsDraft, setForwardsDraft] = useState<ForwardsDraft | null>(null);
   const [forwardsSaving, setForwardsSaving] = useState(false);
   const [actionsPane, setActionsPane] = useState<ActionsPane | null>(null);
+  const [folderPing, setFolderPing] = useState<{
+    folderId: Id;
+    runId: Id;
+    loading: boolean;
+    total: number;
+    results: HostPingResult[];
+  } | null>(null);
   const [status, setStatus] = useState("Loading workspace");
   const [error, setError] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(defaultSidebarWidth);
@@ -422,9 +460,25 @@ function App() {
         ),
       );
     });
+    const unlistenFolderPing = listen<FolderPingProgress>("folder-ping-progress", (event) => {
+      setFolderPing((current) => {
+        if (!current || current.runId !== event.payload.runId) return current;
+        const results = [
+          ...current.results.filter((result) => result.hostId !== event.payload.result.hostId),
+          event.payload.result,
+        ];
+        return {
+          ...current,
+          loading: event.payload.completed < event.payload.total,
+          total: event.payload.total,
+          results,
+        };
+      });
+    });
     return () => {
       unlistenOutput.then((fn) => fn());
       unlistenExit.then((fn) => fn());
+      unlistenFolderPing.then((fn) => fn());
     };
   }, []);
 
@@ -623,6 +677,27 @@ function App() {
       setInspectorSelection({ type: "host", id: host.id });
       setStatus(`Connected: ${host.path}`);
     } catch (err) {
+      setStatus(String(err));
+    }
+  }
+
+  async function pingFolderHosts(folder: FolderView) {
+    const folderIds = workspace ? descendantFolderIds(workspace.folders, folder.id) : new Set<Id>([folder.id]);
+    const total = workspace ? workspace.hosts.filter((host) => folderIds.has(host.folderId)).length : 0;
+    const runId = crypto.randomUUID();
+    setFolderPing({ folderId: folder.id, runId, loading: true, total, results: [] });
+    setStatus(`Pinging ${folder.path}`);
+    try {
+      const results = await invoke<HostPingResult[]>("ping_folder_hosts", { folderId: folder.id, runId });
+      setFolderPing((current) =>
+        current?.runId === runId ? { folderId: folder.id, runId, loading: false, total: results.length, results } : current,
+      );
+      const succeeded = results.filter((result) => result.success).length;
+      setStatus(`Pinged ${results.length} hosts: ${succeeded} succeeded, ${results.length - succeeded} failed`);
+    } catch (err) {
+      setFolderPing((current) =>
+        current?.runId === runId ? { folderId: folder.id, runId, loading: false, total, results: [] } : current,
+      );
       setStatus(String(err));
     }
   }
@@ -1418,6 +1493,9 @@ function App() {
           {!tabs.length && (
             <DetailsPane
               workspace={workspace}
+              selection={selection}
+              ping={folderPing}
+              onPingFolder={pingFolderHosts}
               onSelectHost={selectHost}
             />
           )}
@@ -1703,8 +1781,24 @@ function SearchResults(props: {
 
 function DetailsPane(props: {
   workspace: WorkspaceSnapshot;
+  selection: Selection | null;
+  ping: { folderId: Id; runId: Id; loading: boolean; total: number; results: HostPingResult[] } | null;
+  onPingFolder: (folder: FolderView) => void;
   onSelectHost: (hostId: Id) => void;
 }) {
+  const selectedFolder =
+    props.selection?.type === "folder"
+      ? props.workspace.folders.find((folder) => folder.id === props.selection?.id) ?? null
+      : null;
+  const selectedFolderIds = selectedFolder ? descendantFolderIds(props.workspace.folders, selectedFolder.id) : null;
+  const selectedFolderHostCount = selectedFolderIds
+    ? props.workspace.hosts.filter((host) => selectedFolderIds.has(host.folderId)).length
+    : 0;
+  const ping = selectedFolder && props.ping?.folderId === selectedFolder.id ? props.ping : null;
+  const checked = ping?.results.length ?? 0;
+  const succeeded = ping?.results.filter((result) => result.success).length ?? 0;
+  const failed = checked - succeeded;
+  const total = ping?.total ?? selectedFolderHostCount;
   return (
     <div className="details homeDetails">
       <h2>Workspace</h2>
@@ -1720,6 +1814,43 @@ function DetailsPane(props: {
         <label>Folders</label>
         <span>{props.workspace.folders.length}</span>
       </div>
+      {selectedFolder && (
+        <section className="folderPing">
+          <div className="folderPingHeader">
+            <div>
+              <h3>Selected Folder</h3>
+              <p>{selectedFolder.path}</p>
+              <small>
+                {selectedFolderHostCount} host{plural(selectedFolderHostCount)} including subfolders
+              </small>
+            </div>
+            <button
+              data-testid="folder-ping-button"
+              onClick={() => props.onPingFolder(selectedFolder)}
+              disabled={Boolean(ping?.loading) || selectedFolderHostCount === 0}
+            >
+              <TerminalSquare size={16} /> {ping?.loading ? "Pinging" : "Ping All"}
+            </button>
+          </div>
+          {ping && (
+            <div className="folderPingSummary" data-testid="folder-ping-summary">
+              {checked}/{total} checked - {succeeded} succeeded - {failed} failed
+            </div>
+          )}
+          {ping?.results.length ? (
+            <div className="folderPingResults" data-testid="folder-ping-results">
+              {ping.results.map((result) => (
+                <div className={`folderPingResult ${result.success ? "success" : "failed"}`} key={result.hostId}>
+                  <span>{result.displayName}</span>
+                  <small>{result.path}</small>
+                  <strong>{result.success ? "OK" : "Failed"}</strong>
+                  <code>{result.message}</code>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      )}
       <section>
         <h3>Diagnostics</h3>
         <Diagnostics diagnostics={props.workspace.diagnostics} onSelectHost={props.onSelectHost} />

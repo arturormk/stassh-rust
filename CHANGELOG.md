@@ -22,6 +22,9 @@ All notable changes to this project will be documented in this file.
   exited pane in that layout.
 - GUI folder Inspector details now include an Open All action for opening every
   direct host in the selected folder.
+- The GUI empty workspace view can now probe every host in a selected folder and
+  its subfolders with noninteractive SSH connection attempts and live
+  success/failure counts.
 - GUI Main layout mode now uses pane selection to promote the main terminal and
   only shows the full-screen control on the current main pane.
 - The GUI Inspector now follows the last selected host across tree selections,

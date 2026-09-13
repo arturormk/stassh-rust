@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -48,6 +48,7 @@ fn main() {
             host_secrets,
             reveal_host_secret,
             preview_ssh_command,
+            ping_folder_hosts,
             host_actions,
             preview_action,
             start_ssh_session,
@@ -282,6 +283,25 @@ struct SessionExit {
 struct StartSessionView {
     session_id: Uuid,
     initial_output: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct HostPingResult {
+    host_id: Uuid,
+    path: String,
+    display_name: String,
+    success: bool,
+    message: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct FolderPingProgress {
+    run_id: String,
+    completed: usize,
+    total: usize,
+    result: HostPingResult,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1283,6 +1303,174 @@ fn preview_ssh_command(host_id: Uuid, state: State<'_, AppState>) -> Result<SshP
 }
 
 #[tauri::command]
+async fn ping_folder_hosts(
+    folder_id: Uuid,
+    run_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<HostPingResult>, String> {
+    let (source, local_config, hosts) = {
+        let guard = state.workspace.lock().map_err(error_message)?;
+        let workspace = guard
+            .as_ref()
+            .ok_or_else(|| "workspace is not loaded".to_string())?;
+        if workspace.vault.folder(folder_id).is_none() {
+            return Err(format!("folder not found: {folder_id}"));
+        }
+        let folder_ids = descendant_folder_ids(&workspace.vault, folder_id);
+        let mut hosts = workspace
+            .vault
+            .hosts
+            .iter()
+            .filter(|host| folder_ids.contains(&host.folder_id))
+            .map(|host| workspace.vault.resolve_host(HostSelector::Id(host.id)))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(error_message)?;
+        hosts.sort_by(|left, right| left.path.cmp(&right.path));
+        (workspace.source, workspace.local_config.clone(), hosts)
+    };
+
+    tauri::async_runtime::spawn_blocking(move || {
+        ping_hosts_with_progress(source, local_config, hosts, app, run_id)
+    })
+    .await
+    .map_err(error_message)?
+}
+
+fn ping_hosts_with_progress(
+    source: WorkspaceSource,
+    local_config: LocalConfig,
+    hosts: Vec<stassh_core::ResolvedHost>,
+    app: AppHandle,
+    run_id: String,
+) -> Result<Vec<HostPingResult>, String> {
+    let total = hosts.len();
+    let mut results = Vec::with_capacity(total);
+    for host in hosts {
+        let result = if source == WorkspaceSource::Simulation {
+            HostPingResult {
+                host_id: host.id,
+                path: host.path,
+                display_name: host.display_name,
+                success: true,
+                message: "simulation connection succeeded".to_string(),
+            }
+        } else {
+            ping_host(host, &local_config)
+        };
+        results.push(result.clone());
+        emit_folder_ping_progress(&app, &run_id, results.len(), total, result);
+    }
+    Ok(results)
+}
+
+fn emit_folder_ping_progress(
+    app: &AppHandle,
+    run_id: &str,
+    completed: usize,
+    total: usize,
+    result: HostPingResult,
+) {
+    let _ = app.emit(
+        "folder-ping-progress",
+        FolderPingProgress {
+            run_id: run_id.to_string(),
+            completed,
+            total,
+            result,
+        },
+    );
+}
+
+fn descendant_folder_ids(vault: &Vault, folder_id: Uuid) -> HashSet<Uuid> {
+    let mut ids = HashSet::from([folder_id]);
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for folder in &vault.folders {
+            if let Some(parent_id) = folder.parent_id
+                && ids.contains(&parent_id)
+                && ids.insert(folder.id)
+            {
+                changed = true;
+            }
+        }
+    }
+    ids
+}
+
+fn ping_host(host: stassh_core::ResolvedHost, local_config: &LocalConfig) -> HostPingResult {
+    let path = host.path.clone();
+    let display_name = host.display_name.clone();
+    let (mut command, _temp_config) = match prepare_openssh_command(&host, local_config) {
+        Ok(command) => command,
+        Err(error) => {
+            return HostPingResult {
+                host_id: host.id,
+                path,
+                display_name,
+                success: false,
+                message: error.to_string(),
+            };
+        }
+    };
+    prepare_ping_command(&mut command);
+
+    let output = Command::new(&command.program)
+        .args(&command.args)
+        .stdin(Stdio::null())
+        .output();
+    match output {
+        Ok(output) if output.status.success() => HostPingResult {
+            host_id: host.id,
+            path,
+            display_name,
+            success: true,
+            message: "connection succeeded".to_string(),
+        },
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            HostPingResult {
+                host_id: host.id,
+                path,
+                display_name,
+                success: false,
+                message: if stderr.is_empty() { stdout } else { stderr },
+            }
+        }
+        Err(error) => HostPingResult {
+            host_id: host.id,
+            path,
+            display_name,
+            success: false,
+            message: error.to_string(),
+        },
+    }
+}
+
+fn prepare_ping_command(command: &mut stassh_core::OpenSshCommand) {
+    let destination_index = command.args.len().saturating_sub(1);
+    let probe_options = [
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=5",
+        "-o",
+        "NumberOfPasswordPrompts=0",
+        "-o",
+        "RequestTTY=no",
+        "-o",
+        "ClearAllForwardings=yes",
+    ];
+    command.args.splice(
+        destination_index..destination_index,
+        probe_options.into_iter().map(OsString::from),
+    );
+    command.args.push("true".into());
+}
+
+#[tauri::command]
 fn host_actions(host_id: Uuid, state: State<'_, AppState>) -> Result<Vec<ActionView>, String> {
     workspace_with_state(&state, |workspace| action_views(workspace, host_id))
 }
@@ -1647,6 +1835,64 @@ mod tests {
             command.get_env("TERM"),
             Some(std::ffi::OsStr::new("xterm-256color"))
         );
+    }
+
+    #[test]
+    fn ping_command_runs_noninteractive_remote_true_without_forwards() {
+        let mut command = stassh_core::OpenSshCommand {
+            program: "ssh".into(),
+            args: vec![
+                "-F".into(),
+                "/tmp/stassh-config".into(),
+                "stassh-target".into(),
+            ],
+        };
+
+        prepare_ping_command(&mut command);
+
+        let args = command
+            .args
+            .iter()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(args.last().map(String::as_str), Some("true"));
+        assert_eq!(args[args.len() - 2], "stassh-target");
+        assert!(args.contains(&"BatchMode=yes".to_string()));
+        assert!(args.contains(&"ConnectTimeout=5".to_string()));
+        assert!(args.contains(&"NumberOfPasswordPrompts=0".to_string()));
+        assert!(args.contains(&"RequestTTY=no".to_string()));
+        assert!(args.contains(&"ClearAllForwardings=yes".to_string()));
+    }
+
+    #[test]
+    fn descendant_folder_ids_include_nested_children() {
+        let mut vault = Vault::new();
+        let root_id = vault.root_folder_id();
+        let parent = vault
+            .add_folder(AddFolder {
+                parent_id: Some(root_id),
+                name: "Production".to_string(),
+            })
+            .unwrap();
+        let child = vault
+            .add_folder(AddFolder {
+                parent_id: Some(parent.id),
+                name: "Web".to_string(),
+            })
+            .unwrap();
+        let sibling = vault
+            .add_folder(AddFolder {
+                parent_id: Some(root_id),
+                name: "Staging".to_string(),
+            })
+            .unwrap();
+
+        let ids = descendant_folder_ids(&vault, parent.id);
+
+        assert!(ids.contains(&parent.id));
+        assert!(ids.contains(&child.id));
+        assert!(!ids.contains(&root_id));
+        assert!(!ids.contains(&sibling.id));
     }
 
     fn workspace_with_secrets() -> (Workspace, Uuid) {

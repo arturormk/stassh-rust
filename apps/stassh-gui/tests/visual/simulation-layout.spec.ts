@@ -251,6 +251,18 @@ test("opens direct folder hosts from the folder inspector", async ({ page }) => 
   await expect(page.getByTestId("tab-metrics-01")).toHaveCount(0);
 });
 
+test("pings selected folder hosts from the empty workspace", async ({ page }) => {
+  await page.getByTestId("folder-row-Production").click();
+  await page.getByTestId("folder-ping-button").click();
+
+  await expect(page.getByTestId("folder-ping-summary")).toHaveText("0/3 checked - 0 succeeded - 0 failed");
+  await expect(page.getByTestId("folder-ping-summary")).toHaveText("3/3 checked - 3 succeeded - 0 failed");
+  await expect(page.getByTestId("folder-ping-results")).toContainText("web-prod-01");
+  await expect(page.getByTestId("folder-ping-results")).toContainText("db-prod-01");
+  await expect(page.getByTestId("folder-ping-results")).toContainText("cache-prod-01");
+  await expect(page.getByTestId("tab-web-prod-01")).toHaveCount(0);
+});
+
 test("closes a selected exited terminal when Enter is pressed", async ({ page }) => {
   await openSimulationTerminals(page, ["web-prod-01", "db-prod-01"]);
   await page.getByTestId("tab-web-prod-01").click();
@@ -328,6 +340,21 @@ async function installTauriMock(page: Page) {
       return host;
     }
 
+    function descendantFolderIds(folderId: string) {
+      const ids = new Set([folderId]);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const folder of snapshot.folders) {
+          if (folder.parentId && ids.has(folder.parentId) && !ids.has(folder.id)) {
+            ids.add(folder.id);
+            changed = true;
+          }
+        }
+      }
+      return ids;
+    }
+
     window.__STASSH_TEST_API__ = {
       emit,
       invoke: async (command: string, args?: Record<string, unknown>) => {
@@ -352,6 +379,29 @@ async function installTauriMock(page: Page) {
               username: item.username,
               tags: item.tags,
             }));
+        }
+        if (command === "ping_folder_hosts") {
+          const runId = String(args?.runId);
+          const folderIds = descendantFolderIds(String(args?.folderId));
+          const results = snapshot.hosts
+            .filter((item) => folderIds.has(item.folderId))
+            .map((item) => ({
+              hostId: item.id,
+              path: item.path,
+              displayName: item.displayName,
+              success: true,
+              message: "simulation connection succeeded",
+            }));
+          for (const [index, result] of results.entries()) {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            emit("folder-ping-progress", {
+              runId,
+              completed: index + 1,
+              total: results.length,
+              result,
+            });
+          }
+          return results;
         }
         if (command === "start_ssh_session") {
           const host = findHost(String(args?.hostId));

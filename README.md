@@ -572,6 +572,9 @@ Current GUI capabilities:
 - create, edit, copy, delete, and move hosts
 - create, rename, move, and delete folders where allowed
 - open every direct host in a selected folder from the folder Inspector
+- probe every host in a selected folder and its subfolders from the empty
+  workspace view by attempting noninteractive SSH connections with live
+  success/failure counts
 - assign or clear a host identity from local mappings
 - inspect linked secrets sets and explicitly reveal encrypted fields with the
   secrets master password

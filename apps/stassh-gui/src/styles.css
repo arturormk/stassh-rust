@@ -617,6 +617,102 @@ code {
   max-width: 760px;
 }
 
+.folderPing {
+  border: 1px solid #2d333c;
+  border-radius: 8px;
+  background: #151b23;
+  padding: 12px;
+}
+
+.folderPingHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.folderPingHeader h3 {
+  margin-top: 0;
+}
+
+.folderPingHeader p {
+  margin: 0 0 4px;
+  overflow-wrap: anywhere;
+  color: #e8edf3;
+}
+
+.folderPingHeader small,
+.folderPingSummary {
+  color: #94a0ad;
+  font-size: 12px;
+}
+
+.folderPingSummary {
+  margin-top: 10px;
+}
+
+.folderPingHeader button {
+  justify-content: center;
+  min-width: 118px;
+  min-height: 38px;
+  border-color: #3e7896;
+  color: #f2fbff;
+  background: #245d78;
+}
+
+.folderPingHeader button:hover {
+  background: #2b6f8f;
+}
+
+.folderPingHeader button:disabled {
+  border-color: #303946;
+  background: #1a2028;
+}
+
+.folderPingResults {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.folderPingResult {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  border-left: 3px solid #d46a5d;
+  background: #10151b;
+  padding: 8px 10px;
+}
+
+.folderPingResult.success {
+  border-color: #54c18b;
+}
+
+.folderPingResult span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folderPingResult small {
+  overflow-wrap: anywhere;
+  color: #94a0ad;
+  font-size: 12px;
+}
+
+.folderPingResult strong {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  color: #e8edf3;
+  font-size: 12px;
+}
+
+.folderPingResult code {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+}
+
 .inspectorHeader {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
