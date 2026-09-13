@@ -596,7 +596,7 @@ Current GUI capabilities:
 - drag a terminal tab onto a layout tab to add it, or drag one terminal tab onto
   another terminal tab to create a new layout with both
 - use layout-local Broadcast mode to send terminal input from one pane to all
-  panes in that layout
+  panes in that layout, with active broadcast state shown in every pane header
 - make the selected terminal pane internally full-screen inside the app window;
   in Main layout mode, this control is shown on the current main pane
 - search terminal scrollback from the focused pane, with optional

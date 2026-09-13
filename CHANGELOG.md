@@ -20,6 +20,9 @@ All notable changes to this project will be documented in this file.
   and `Ctrl+Shift+V` to paste from the clipboard.
 - GUI Broadcast layouts now apply the exited-pane `Enter` close action to every
   exited pane in that layout.
+- GUI layout Broadcast mode is now more visible: the Broadcast control sits on
+  the right side of the layout toolbar, and active broadcast layouts highlight
+  each participating terminal pane header.
 - GUI folder Inspector details now include an Open All action for opening every
   direct host in the selected folder.
 - The GUI empty workspace view can now probe every host in a selected folder and

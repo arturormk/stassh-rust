@@ -2841,6 +2841,7 @@ function TerminalStage(props: {
               Main
             </button>
           </div>
+          <span className="layoutPaneCount">{layout.sessionIds.length} panes</span>
           <button
             className={`broadcastToggle ${layout.broadcastInput ? "active" : ""}`}
             data-testid="layout-broadcast-toggle"
@@ -2849,7 +2850,6 @@ function TerminalStage(props: {
           >
             Broadcast
           </button>
-          <span>{layout.sessionIds.length} panes</span>
         </div>
       )}
       <div className={`terminalStage ${modeClass}`} data-testid="terminal-stage" style={gridStyle}>
@@ -2871,6 +2871,7 @@ function TerminalStage(props: {
               focused={focused}
               fullscreen={fullscreen}
               style={paneStyle}
+              broadcastActive={Boolean(layout?.broadcastInput && layout.sessionIds.includes(tab.sessionId))}
               showPaneControls={Boolean(layout && visible)}
               showFullscreenButton={showFullscreenButton}
               onInput={(sessionId, data) => {
@@ -2926,6 +2927,7 @@ function TerminalPane({
   focused,
   fullscreen,
   style,
+  broadcastActive,
   showPaneControls,
   showFullscreenButton,
   onInput,
@@ -2941,6 +2943,7 @@ function TerminalPane({
   focused: boolean;
   fullscreen: boolean;
   style?: React.CSSProperties;
+  broadcastActive: boolean;
   showPaneControls: boolean;
   showFullscreenButton: boolean;
   onInput: (sessionId: Id, data: string) => void;
@@ -3182,12 +3185,12 @@ function TerminalPane({
     <div
       className={`terminalPanel ${visible ? "active" : ""} ${focused ? "focused" : ""} ${
         fullscreen ? "fullscreen" : ""
-      }`}
+      } ${broadcastActive ? "broadcastActive" : ""}`}
       data-testid={`terminal-pane-${tab.title}`}
       style={style}
       onMouseDown={onFocus}
     >
-      <div className="terminalStatus">
+      <div className={`terminalStatus ${broadcastActive ? "broadcastActive" : ""}`}>
         <div className="terminalTitle">
           <span className="terminalHostTitle">{tab.title}</span>
           {displayNotes && <span className="terminalNotes">{displayNotes}</span>}

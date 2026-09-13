@@ -407,7 +407,7 @@ code {
 
 .layoutToolbar {
   display: grid;
-  grid-template-columns: auto auto minmax(70px, auto);
+  grid-template-columns: auto minmax(70px, 1fr) auto;
   gap: 8px;
   align-items: center;
   border-bottom: 1px solid #2d333c;
@@ -415,6 +415,12 @@ code {
   color: #94a0ad;
   font-size: 12px;
   padding: 7px 10px;
+}
+
+.layoutPaneCount {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .layoutSegment {
@@ -437,22 +443,27 @@ code {
 }
 
 .broadcastToggle {
+  justify-self: end;
   width: fit-content;
   min-height: 26px;
   gap: 0;
   color: #bac5d1;
-  padding: 3px 6px;
+  border-color: #465260;
+  background: #222a34;
+  font-weight: 700;
+  padding: 3px 10px;
   white-space: nowrap;
 }
 
 .broadcastToggle.active {
-  border-color: #38a8ff;
-  color: #071018;
-  background: #38a8ff;
+  border-color: #ffd166;
+  color: #171007;
+  background: #ffd166;
+  box-shadow: 0 0 0 2px rgba(255, 209, 102, 0.2);
 }
 
 .broadcastToggle.active:hover {
-  background: #65bbff;
+  background: #ffe08f;
 }
 
 .terminalStage {
@@ -1128,6 +1139,21 @@ code {
   color: #94a0ad;
   font-size: 12px;
   padding: 4px 8px;
+}
+
+.terminalStatus.broadcastActive {
+  border-bottom-color: #7a6124;
+  color: #ffd166;
+  background: linear-gradient(90deg, rgba(255, 209, 102, 0.2), rgba(255, 209, 102, 0.07));
+  box-shadow: inset 0 1px 0 rgba(255, 209, 102, 0.24);
+}
+
+.terminalPanel.broadcastActive {
+  border-color: #7a6124;
+}
+
+.terminalPanel.focused.broadcastActive {
+  border-color: #ffd166;
 }
 
 .terminalStatus:has(.terminalFind) {
