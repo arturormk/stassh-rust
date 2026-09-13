@@ -1189,6 +1189,46 @@ code {
   border-color: #ffd166;
 }
 
+.terminalPanel.promotesToMain {
+  cursor: pointer;
+  border-color: #3a4654;
+  background: #151b22;
+}
+
+.terminalPanel.promotesToMain:hover {
+  border-color: #86a7c8;
+  background: #1b2632;
+  box-shadow: inset 0 0 0 1px rgba(134, 167, 200, 0.24);
+}
+
+.terminalPanel.promotesToMain .terminalStatus {
+  background: #171e26;
+}
+
+.terminalPanel.promotesToMain:hover .terminalStatus {
+  color: #bac5d1;
+  background: #202b37;
+}
+
+.terminalPanel.promotesToMain .terminalScroller {
+  pointer-events: none;
+  opacity: 0.82;
+  background: #151b22;
+  filter: saturate(0.82);
+}
+
+.terminalPanel.promotesToMain:hover .terminalScroller {
+  opacity: 0.92;
+  background: #17212b;
+}
+
+.terminalPanel.promotesToMain .terminal,
+.terminalPanel.promotesToMain .xterm,
+.terminalPanel.promotesToMain .xterm-viewport,
+.terminalPanel.promotesToMain .xterm-screen {
+  cursor: pointer;
+}
+
 .terminalStatus:has(.terminalFind) {
   grid-template-columns: minmax(0, 1fr) minmax(150px, 320px) auto auto auto;
 }

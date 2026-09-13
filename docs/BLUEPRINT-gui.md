@@ -444,6 +444,8 @@ Current session affordances:
 * keep each terminal session as an individual tab,
 * create independent layout tabs over existing terminal sessions,
 * view sessions in equal-grid or main-plus-secondary-grid layouts,
+* mark secondary panes in main-pane layouts as promotable, using cursor and
+  hover cues to show that clicks make them main instead of interacting directly,
 * drag a terminal tab onto a layout tab to add it,
 * drag one terminal tab onto another terminal tab to create a new layout,
 * reorder terminal and layout tabs while keeping terminal scrollback mounted,

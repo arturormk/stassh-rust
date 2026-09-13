@@ -36,7 +36,10 @@ All notable changes to this project will be documented in this file.
 - GUI Ping All results now show when the selected-folder probe last ran, and the
   Workspace panel scrolls when large result sets exceed the visible area.
 - GUI Main layout mode now uses pane selection to promote the main terminal and
-  only shows the full-screen control on the current main pane.
+  only shows the full-screen control on the current main pane. Secondary panes
+  now show a pointer cursor and subdued hover treatment to indicate that
+  clicking them promotes them to main instead of interacting with the terminal
+  directly.
 - The GUI Inspector now follows the last selected host across tree selections,
   terminal tabs, layout panes, and exited terminal panes.
 - Actions now support config-aware SSH transfer templates for helpers such as

@@ -593,7 +593,9 @@ Current GUI capabilities:
 - keep multiple SSH sessions open as individual terminal tabs
 - create independent `Layout {n}` tabs that show existing terminal sessions as
   equal grids or a main pane plus secondary grid
-- select a terminal pane in Main layout mode to make it the main pane
+- select a marked secondary terminal pane in Main layout mode to make it the
+  main pane; secondary panes use cursor and hover cues to show they promote
+  instead of accepting direct terminal input
 - drag a terminal tab onto a layout tab to add it, or drag one terminal tab onto
   another terminal tab to create a new layout with both
 - use layout-local Broadcast mode to send terminal input from one pane to all

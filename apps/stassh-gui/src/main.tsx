@@ -2894,6 +2894,7 @@ function TerminalStage(props: {
           const fullscreen = props.fullscreenSessionId === tab.sessionId;
           const mainSessionId = layout?.activeSessionId ?? layout?.sessionIds[0] ?? null;
           const isMainLayoutPane = layout?.mode === "main" && mainSessionId === tab.sessionId;
+          const promotesToMain = Boolean(layout?.mode === "main" && visible && !isMainLayoutPane && !fullscreen);
           const showFullscreenButton = !layout || layout.mode !== "main" || isMainLayoutPane || fullscreen;
           const paneStyle = layout ? layoutPaneStyle(layout, tab.sessionId) : undefined;
           const notes = hostsById.get(tab.hostId)?.notes ?? null;
@@ -2908,6 +2909,7 @@ function TerminalStage(props: {
               style={paneStyle}
               broadcastActive={Boolean(layout?.broadcastInput && layout.sessionIds.includes(tab.sessionId))}
               minColumnsEnabled={Boolean(minColumnsActive && layout?.sessionIds.includes(tab.sessionId))}
+              promotesToMain={promotesToMain}
               showPaneControls={Boolean(layout && visible)}
               showFullscreenButton={showFullscreenButton}
               onInput={(sessionId, data) => {
@@ -2965,6 +2967,7 @@ function TerminalPane({
   style,
   broadcastActive,
   minColumnsEnabled,
+  promotesToMain,
   showPaneControls,
   showFullscreenButton,
   onInput,
@@ -2982,6 +2985,7 @@ function TerminalPane({
   style?: React.CSSProperties;
   broadcastActive: boolean;
   minColumnsEnabled: boolean;
+  promotesToMain: boolean;
   showPaneControls: boolean;
   showFullscreenButton: boolean;
   onInput: (sessionId: Id, data: string) => void;
@@ -3235,9 +3239,10 @@ function TerminalPane({
     <div
       className={`terminalPanel ${visible ? "active" : ""} ${focused ? "focused" : ""} ${
         fullscreen ? "fullscreen" : ""
-      } ${broadcastActive ? "broadcastActive" : ""}`}
+      } ${broadcastActive ? "broadcastActive" : ""} ${promotesToMain ? "promotesToMain" : ""}`}
       data-testid={`terminal-pane-${tab.title}`}
       style={style}
+      title={promotesToMain ? "Click to make this the main pane" : undefined}
       onMouseDown={onFocus}
     >
       <div className={`terminalStatus ${broadcastActive ? "broadcastActive" : ""}`}>

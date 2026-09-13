@@ -197,9 +197,26 @@ test("captures main-pane mode with broadcast input enabled", async ({ page }) =>
 
   await expect(page.getByText("Broadcast")).toHaveClass(/active/);
   await expect(page.getByTitle("Use as main pane")).toHaveCount(0);
+  await expect(page.getByTestId("terminal-pane-web-prod-01")).not.toHaveClass(/promotesToMain/);
+  await expect(page.getByTestId("terminal-pane-db-prod-01")).toHaveClass(/promotesToMain/);
+  await expect(page.getByTestId("terminal-pane-db-prod-01")).toHaveCSS("cursor", "pointer");
+  await expect(page.getByTestId("terminal-pane-db-prod-01")).toHaveAttribute(
+    "title",
+    "Click to make this the main pane",
+  );
   await expect(page.getByTestId("terminal-fullscreen-button-web-prod-01")).toBeVisible();
   await expect(page.getByTestId("terminal-fullscreen-button-db-prod-01")).toHaveCount(0);
   await expect(page.getByTestId("terminal-fullscreen-button-cache-prod-01")).toHaveCount(0);
+  await page.getByTestId("terminal-pane-db-prod-01").click();
+  await expect(page.getByTestId("terminal-pane-db-prod-01")).not.toHaveClass(/promotesToMain/);
+  await expect(page.getByTestId("terminal-pane-web-prod-01")).toHaveClass(/promotesToMain/);
+  await expect(page.getByTestId("terminal-fullscreen-button-db-prod-01")).toBeVisible();
+  await expect(page.getByTestId("terminal-fullscreen-button-web-prod-01")).toHaveCount(0);
+  await page.getByTestId("terminal-pane-web-prod-01").click();
+  await expect(page.getByTestId("terminal-pane-web-prod-01")).not.toHaveClass(/promotesToMain/);
+  await expect(page.getByTestId("terminal-pane-db-prod-01")).toHaveClass(/promotesToMain/);
+  await expect(page.getByTestId("terminal-fullscreen-button-web-prod-01")).toBeVisible();
+  await expect(page.getByTestId("terminal-fullscreen-button-db-prod-01")).toHaveCount(0);
   await page.waitForTimeout(1_100);
   await expect(page.getByTestId("terminal-stage-panel")).toHaveScreenshot("simulation-main-broadcast-layout.png");
 });
