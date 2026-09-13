@@ -2143,7 +2143,7 @@ function HostInspectorDetails(props: {
     <div className="inspectorDetails">
       <InspectorHeader title={host.displayName} subtitle={subtitle} onCollapse={props.onCollapse} />
       <div className="hostWorkflowActions">
-        <button className="connectPrimary" onClick={() => props.onConnect(host)}>
+        <button className="connectPrimary primaryAction" onClick={() => props.onConnect(host)}>
           <TerminalSquare size={16} /> Connect
         </button>
         <button onClick={() => props.onActions(host)} disabled={!host.actionCount}>
@@ -2649,7 +2649,11 @@ function FolderInspectorDetails(props: {
         <Diagnostics diagnostics={props.diagnostics} onSelectHost={props.onSelectHost} />
       </section>
       <div className="inspectorActions secondaryFolderActions">
-        <button onClick={() => props.onOpenAll(props.hosts)} disabled={!props.hosts.length}>
+        <button
+          className="openAllPrimary primaryAction"
+          onClick={() => props.onOpenAll(props.hosts)}
+          disabled={!props.hosts.length}
+        >
           <TerminalSquare size={16} /> Open All
         </button>
         <button onClick={() => props.onEdit(props.folder)}>

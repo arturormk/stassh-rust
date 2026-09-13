@@ -677,13 +677,6 @@ code {
   justify-content: center;
   min-width: 118px;
   min-height: 38px;
-  border-color: #3e7896;
-  color: #f2fbff;
-  background: #245d78;
-}
-
-.folderPingHeader button:hover {
-  background: #2b6f8f;
 }
 
 .folderPingHeader button:disabled {
@@ -816,13 +809,10 @@ code {
 .hostWorkflowActions .connectPrimary {
   grid-column: 1 / -1;
   min-height: 42px;
-  border-color: #3e7896;
-  color: #f2fbff;
-  background: #245d78;
 }
 
-.hostWorkflowActions .connectPrimary:hover {
-  background: #2b6f8f;
+.secondaryFolderActions .openAllPrimary {
+  grid-column: 1 / -1;
 }
 
 .secondaryHostActions,
@@ -853,9 +843,36 @@ code {
   background: #263341;
 }
 
-.secondaryHostActions button.danger,
-.secondaryFolderActions button.danger {
+.folderPingHeader .primaryAction,
+.hostWorkflowActions .primaryAction,
+.secondaryFolderActions .primaryAction {
+  border-color: #3e7896;
+  color: #f2fbff;
+  background: #245d78;
+}
+
+.folderPingHeader .primaryAction:hover,
+.hostWorkflowActions .primaryAction:hover,
+.secondaryFolderActions .primaryAction:hover {
+  background: #2b6f8f;
+}
+
+.folderPingHeader .primaryAction:disabled,
+.hostWorkflowActions .primaryAction:disabled,
+.secondaryFolderActions .primaryAction:disabled {
+  border-color: #303946;
+  color: #697481;
+  background: #1a2028;
+}
+
+.secondaryHostActions button.danger {
   grid-column: 1 / -1;
+  border-color: #77413e;
+  color: #ffd8d2;
+  background: #2a1f24;
+}
+
+.secondaryFolderActions button.danger {
   border-color: #77413e;
   color: #ffd8d2;
   background: #2a1f24;

@@ -276,6 +276,11 @@ test("host inspector separates workflow and maintenance actions", async ({ page 
   await page.getByTestId("folder-row-Production").click();
   const folderActions = page.locator(".secondaryFolderActions");
   await expect(folderActions.getByRole("button")).toHaveText(["Open All", "Rename", "Delete"]);
+  await expect(folderActions.getByRole("button", { name: "Open All" })).toHaveClass(/primaryAction/);
+  const renameBox = await folderActions.getByRole("button", { name: "Rename" }).boundingBox();
+  const deleteBox = await folderActions.getByRole("button", { name: "Delete" }).boundingBox();
+  if (!renameBox || !deleteBox) throw new Error("folder action buttons are not visible");
+  expect(Math.abs(renameBox.y - deleteBox.y)).toBeLessThan(1);
 });
 
 test("opens direct folder hosts from the folder inspector", async ({ page }) => {

@@ -26,8 +26,9 @@ All notable changes to this project will be documented in this file.
 - GUI layout tabs now include a per-layout `Min 72` toggle that keeps narrow
   terminal panes at least 72 columns wide and adds horizontal scrolling instead
   of forcing heavy line wrapping.
-- GUI folder Inspector details now include an Open All action for opening every
-  direct host in the selected folder.
+- GUI folder Inspector details now include a primary Open All action for opening
+  every direct host in the selected folder, with Rename and Delete grouped
+  beneath it as secondary maintenance actions.
 - The GUI empty workspace view can now probe every host in a selected folder and
   its subfolders with noninteractive SSH connection attempts and live
   success/failure counts.
