@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.2.1 - 2026-09-15
+
+### Fixed
+
+- GUI terminal `Ctrl+Shift+V` now uses native paste handling without also
+  inserting the clipboard contents a second time.
+- Linux package releases now accept patch-version tags such as `v1.2.1`.
+
 ## v1.2.0 - 2026-09-13
 
 ### Added

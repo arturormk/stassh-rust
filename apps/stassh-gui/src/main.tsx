@@ -3198,15 +3198,6 @@ function TerminalPane({
     }
   }
 
-  async function pasteTerminalClipboard(terminal: Terminal) {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text) terminal.paste(text);
-    } catch (error) {
-      console.error("terminal paste failed", error);
-    }
-  }
-
   useEffect(() => {
     if (!findOpen) return;
     runFind("next");
@@ -3265,10 +3256,7 @@ function TerminalPane({
           void copyTerminalSelection(terminal);
           return false;
         }
-        if (key === "v") {
-          void pasteTerminalClipboard(terminal);
-          return false;
-        }
+        // Leave Ctrl+Shift+V to the native paste event handled by xterm.
       }
       if (
         event.type === "keydown" &&

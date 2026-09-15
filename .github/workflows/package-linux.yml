@@ -29,8 +29,8 @@ jobs:
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
-          if [[ ! "$tag" =~ ^v([0-9]+)\.([0-9]+)(\.0)?$ ]]; then
-            echo "Expected an even-minor release tag such as v1.0 or v1.0.0; got $tag" >&2
+          if [[ ! "$tag" =~ ^v([0-9]+)\.([0-9]+)(\.([0-9]+))?$ ]]; then
+            echo "Expected an even-minor release tag such as v1.2 or v1.2.1; got $tag" >&2
             exit 1
           fi
 
@@ -41,7 +41,8 @@ jobs:
             exit 1
           fi
 
-          normalized="$major.$minor.0"
+          patch="${BASH_REMATCH[4]:-0}"
+          normalized="$major.$minor.$patch"
           manifest_version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "stassh") | .version')"
           if [[ "$manifest_version" != "$normalized" ]]; then
             echo "Tag $tag normalizes to $normalized, but Cargo metadata is $manifest_version" >&2

@@ -523,11 +523,65 @@ test("removes a layout tab after its last terminal is closed", async ({ page }) 
   await expect(tabTitles(page)).resolves.toEqual([]);
 });
 
+for (const bracketed of [false, true]) {
+  test(`pastes once per Ctrl+Shift+V with bracketed paste ${bracketed ? "enabled" : "disabled"}`, async ({ page }) => {
+    await openSimulationTerminals(page, ["web-prod-01"]);
+    const sessionId = await terminalSessionId(page, "web-prod-01");
+    const textarea = page.getByTestId("terminal-pane-web-prod-01").locator(".xterm-helper-textarea");
+    await textarea.focus();
+
+    // A cursor-position query confirms xterm has processed the mode change.
+    await page.evaluate(({ sessionId, bracketed }) => {
+      window.__STASSH_TEST_API__?.emit?.("session-output", {
+        sessionId,
+        data: `\x1b[?2004${bracketed ? "h" : "l"}\x1b[6n`,
+      });
+    }, { sessionId, bracketed });
+    await expect.poll(() => page.evaluate(() => window.__STASSH_TEST_API__?.writeCalls?.length)).toBe(1);
+    await page.evaluate(() => window.__STASSH_TEST_API__?.writeCalls?.splice(0));
+
+    const text = "hello café 世界\nsecond line\r\nthird line";
+    const normalized = "hello café 世界\rsecond line\rthird line";
+    const data = bracketed ? `\x1b[200~${normalized}\x1b[201~` : normalized;
+    for (let count = 1; count <= 2; count++) {
+      const result = await textarea.evaluate(async (element, text) => {
+        let reads = 0;
+        Object.defineProperty(navigator.clipboard, "readText", {
+          configurable: true,
+          value: async () => { reads++; return text; },
+        });
+        // Synthetic key events do not trigger browser clipboard actions, so
+        // explicitly deliver the paste event produced by the native shortcut.
+        const key = new KeyboardEvent("keydown", {
+          key: "V", code: "KeyV", keyCode: 86, ctrlKey: true, shiftKey: true,
+          bubbles: true, cancelable: true,
+        });
+        element.dispatchEvent(key);
+        const clipboardData = new DataTransfer();
+        clipboardData.setData("text/plain", text);
+        element.dispatchEvent(new ClipboardEvent("paste", { clipboardData, bubbles: true, cancelable: true }));
+        await Promise.resolve();
+        return { reads, prevented: key.defaultPrevented };
+      }, text);
+      expect(result).toEqual({ reads: 0, prevented: false });
+      await expect.poll(() => page.evaluate(() => window.__STASSH_TEST_API__?.writeCalls)).toEqual(
+        Array.from({ length: count }, () => ({ sessionId, data })),
+      );
+    }
+
+    await page.keyboard.press("Control+c");
+    await expect.poll(() => page.evaluate(() => window.__STASSH_TEST_API__?.writeCalls?.at(-1))).toEqual({
+      sessionId, data: "\x03",
+    });
+  });
+}
+
 async function installTauriMock(page: Page) {
   await page.addInitScript(({ snapshot }) => {
     const listeners = new Map<string, Set<Listener>>();
     const sessionHostById = new Map<string, string>();
     const resizeCalls: { sessionId: string; cols: number; rows: number }[] = [];
+    const writeCalls: { sessionId: string; data: string }[] = [];
     let sessionIndex = 0;
 
     function emit(eventName: string, payload: unknown) {
@@ -560,6 +614,7 @@ async function installTauriMock(page: Page) {
     window.__STASSH_TEST_API__ = {
       emit,
       resizeCalls,
+      writeCalls,
       invoke: async (command: string, args?: Record<string, unknown>) => {
         if (command === "app_version") return "1.1.42";
         if (command === "load_workspace" || command === "reload_workspace") return snapshot;
@@ -625,6 +680,7 @@ async function installTauriMock(page: Page) {
           const sessionId = String(args?.sessionId);
           const displayName = sessionHostById.get(sessionId) ?? "host";
           const data = String(args?.data ?? "");
+          writeCalls.push({ sessionId, data });
           emit("session-output", {
             sessionId,
             data:

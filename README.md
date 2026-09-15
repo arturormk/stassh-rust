@@ -163,7 +163,7 @@ build, then can offer to install a successfully built `.deb` or `.rpm` package.
 For non-interactive use, pass `--bundle`, for example `--bundle deb,rpm`.
 
 The package workflow runs only when a tag is pushed. It accepts tags such as
-`v1.0` or `v1.0.0` when the minor version is even, verifies the tag matches the
+`v1.2` or `v1.2.1` when the minor version is even, verifies the tag matches the
 stored package version, builds both package formats, and creates a draft GitHub
 Release with the package files attached. Publish the draft release manually
 after downloading and testing the generated packages.
